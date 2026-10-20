@@ -1,14 +1,11 @@
 import { buildDocument, debounce, jsStartLine } from './preview.js';
 import { bridgeScript } from './console-bridge.js';
+import { encodeProject, decodeProject } from './share.js';
+import { TEMPLATES } from './templates.js';
 
 const $ = (id) => document.getElementById(id);
 const editors = { html: $('html'), css: $('css'), js: $('js') };
 
-const STARTER = {
-  html: '<main class="card">\n  <h1>Hello!</h1>\n  <p>Edit the HTML, CSS and JavaScript on the left.</p>\n  <button id="btn">Click me</button>\n</main>',
-  css: 'body {\n  font-family: system-ui, sans-serif;\n  display: grid;\n  place-items: center;\n  min-height: 100vh;\n  margin: 0;\n  background: #f4f1ea;\n}\n\n.card {\n  padding: 2rem;\n  background: white;\n  border-radius: 12px;\n  box-shadow: 0 8px 30px rgb(0 0 0 / 0.1);\n}',
-  js: "let clicks = 0;\n\ndocument.getElementById('btn').addEventListener('click', () => {\n  clicks++;\n  document.querySelector('h1').textContent = `Clicked ${clicks} times`;\n  console.log('clicks:', clicks);\n});",
-};
 
 const current = () => ({ html: editors.html.value, css: editors.css.value, js: editors.js.value });
 
@@ -134,6 +131,45 @@ for (const ta of Object.values(editors)) {
 
 $('run').onclick = () => { runSoon.cancel(); run(); };
 
+function toast(message) {
+  $('toast').textContent = message;
+  $('toast').classList.add('show');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => $('toast').classList.remove('show'), 2200);
+}
+
+// ---- templates ----
+
+for (const [id, t] of Object.entries(TEMPLATES)) $('template').add(new Option(t.name, id));
+$('template').onchange = () => {
+  const t = TEMPLATES[$('template').value];
+  $('template').value = '';
+  if (!t) return;
+  const hasWork = Object.values(current()).some((v) => v.trim());
+  if (hasWork && !confirm(`Replace your code with "${t.name}"?`)) return;
+  setProject(t);
+  history.replaceState(null, '', location.pathname);       // the old share link no longer matches
+};
+
+// ---- share: the code goes in the link itself ----
+
+$('share').onclick = async () => {
+  const hash = await encodeProject(current());
+  const url = `${location.origin}${location.pathname}#${hash}`;
+  history.replaceState(null, '', `#${hash}`);
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('Link copied. Anyone with it sees this code.');
+  } catch {
+    prompt('Copy this link:', url);                           // clipboard can be blocked
+  }
+};
+
+addEventListener('hashchange', async () => {
+  const shared = await decodeProject(location.hash);
+  if (shared) setProject(shared);
+});
+
 // ---- tabs on small screens ----
 
 document.querySelectorAll('.tabs button').forEach((b) => {
@@ -143,4 +179,7 @@ document.querySelectorAll('.tabs button').forEach((b) => {
   };
 });
 
-setProject(STARTER);
+// Open a shared link if there is one, otherwise the starter template
+const shared = await decodeProject(location.hash);
+if (location.hash && !shared) toast('That share link looks incomplete, so the starter code is shown instead.');
+setProject(shared ?? TEMPLATES.hello);

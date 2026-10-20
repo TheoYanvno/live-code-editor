@@ -10,6 +10,10 @@
   <header class="toolbar">
     <h1><span class="logo">&lt;/&gt;</span> Live Code Editor</h1>
     <div class="tools">
+      <select id="template" aria-label="Start from a template">
+        <option value="">Templates…</option>
+      </select>
+      <button id="share" title="Copy a link to this code">Share</button>
       <label class="toggle"><input id="auto" type="checkbox" checked> Auto-run</label>
       <button id="run" class="primary" title="Run (Ctrl+Enter)">▶ Run</button>
     </div>
@@ -56,6 +60,7 @@
       </section>
     </section>
   </main>
+  <p id="toast" class="toast" role="status"></p>
   <script type="module" src="src/app.js"></script>
 </body>
 </html>
