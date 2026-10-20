@@ -42,6 +42,18 @@
       <div class="frame-bar"><span>Result</span><span id="updated" class="muted"></span></div>
       <!-- sandbox without allow-same-origin: the code runs in its own origin and can't touch this page or its storage -->
       <iframe id="preview" title="Result" sandbox="allow-scripts allow-modals allow-forms allow-popups"></iframe>
+
+      <section class="console" aria-label="Console">
+        <div class="console-bar">
+          <button id="toggleConsole" class="link" aria-expanded="true">Console <span id="counts" class="counts"></span></button>
+          <button id="clearConsole" class="link">Clear</button>
+        </div>
+        <ol id="logs" class="logs" aria-live="polite"></ol>
+        <form id="evalForm" class="eval">
+          <span aria-hidden="true">›</span>
+          <input id="evalInput" autocomplete="off" spellcheck="false" placeholder="Run an expression in the page, e.g. document.title" aria-label="Run JavaScript in the result page">
+        </form>
+      </section>
     </section>
   </main>
   <script type="module" src="src/app.js"></script>

@@ -8,10 +8,16 @@
 export const escapeScript = (code) => code.replace(/<\/(script)/gi, '<\\/$1');
 export const escapeStyle = (code) => code.replace(/<\/(style)/gi, '<\\/$1');
 
+/** The line (counting from 1) where the user's JS begins in a built page, for error line numbers. */
+export function jsStartLine(doc, js) {
+  const at = doc.lastIndexOf(`<script>\n${escapeScript(js)}`);
+  return at < 0 ? 0 : doc.slice(0, at).split('\n').length + 1;
+}
+
 /** If the user wrote a full page (<html> or <body>), put our CSS and JS inside it; otherwise wrap their markup. */
 export function buildDocument({ html = '', css = '', js = '' }, { head = '' } = {}) {
   const style = `<style>\n${escapeStyle(css)}\n</style>`;
-  const script = js.trim() ? `<script>\n${escapeScript(js)}\n//# sourceURL=editor.js\n</script>` : '';
+  const script = js.trim() ? `<script>\n${escapeScript(js)}\n</script>` : '';
   const isFullPage = /<html[\s>]|<body[\s>]/i.test(html);
 
   if (!isFullPage) {

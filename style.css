@@ -124,6 +124,45 @@ textarea:focus-visible { outline: none; }
 .frame-bar .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
 iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 
+/* ---- console ---- */
+
+.console {
+  display: flex;
+  flex-direction: column;
+  height: 34%;
+  min-height: 120px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  color: var(--text);
+}
+.console.collapsed { height: auto; min-height: 0; }
+.console.collapsed .logs, .console.collapsed .eval { display: none; }
+.console-bar { display: flex; justify-content: space-between; padding: 2px 6px; border-bottom: 1px solid var(--line); }
+button.link { background: none; border: 0; padding: 4px 6px; font: 600 0.75rem/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+button.link:hover { color: var(--text); }
+.counts { margin-left: 6px; letter-spacing: 0; text-transform: none; font-weight: 400; }
+.counts .e { color: var(--error); }
+.counts .w { color: var(--warn); margin-left: 6px; }
+
+.logs { flex: 1; margin: 0; padding: 0; list-style: none; overflow: auto; font: 12.5px/1.5 var(--mono); }
+.logs li { display: flex; gap: 8px; padding: 3px 12px; border-bottom: 1px solid #20242f; white-space: pre-wrap; word-break: break-word; }
+.logs li::before { content: ''; flex: 0 0 1ch; }
+.logs .warn { color: var(--warn); background: #2a2516; }
+.logs .warn::before { content: '⚠'; }
+.logs .error { color: var(--error); background: #2c1a1d; }
+.logs .error::before { content: '✕'; }
+.logs .result { color: #a8c7ff; }
+.logs .result::before { content: '←'; color: var(--muted); }
+.logs .input { color: var(--muted); }
+.logs .input::before { content: '›'; }
+.logs .line { margin-left: auto; color: var(--muted); white-space: nowrap; }
+.logs .empty { color: var(--muted); font-style: italic; }
+.logs .empty::before { content: none; }
+
+.eval { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-top: 1px solid var(--line); color: var(--accent); font-family: var(--mono); }
+.eval input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font: 12.5px/1.8 var(--mono); }
+.eval input:focus-visible { outline: none; }
+
 /* ---- phone and narrow screens: one pane at a time, picked with tabs ---- */
 
 .tabs { display: none; }

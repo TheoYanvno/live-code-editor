@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDocument, escapeScript, debounce } from '../src/preview.js';
+import { buildDocument, escapeScript, debounce, jsStartLine } from '../src/preview.js';
 
 test('wraps plain markup in a page with the CSS in the head and JS at the end of the body', () => {
   const doc = buildDocument({ html: '<h1>Hi</h1>', css: 'h1 { color: red }', js: 'console.log(1)' });
@@ -50,4 +50,11 @@ test('debounce runs once after calls stop', async () => {
   run(); run(); run();
   await new Promise((r) => setTimeout(r, 50));
   assert.equal(calls, 1);
+});
+
+test('finds the line where the JS starts, for error messages', () => {
+  const js = 'one()\ntwo()';
+  const doc = buildDocument({ html: '<p>a</p>\n<p>b</p>', js }, { head: '<script>\nbridge()\n</script>' });
+  const lines = doc.split('\n');
+  assert.equal(lines[jsStartLine(doc, js) - 1], 'one()');
 });
