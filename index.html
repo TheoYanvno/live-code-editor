@@ -13,6 +13,8 @@
       <select id="template" aria-label="Start from a template">
         <option value="">Templates…</option>
       </select>
+      <button id="save" title="Save in this browser (Ctrl+S)">Save</button>
+      <button id="openSaved">My projects</button>
       <button id="share" title="Copy a link to this code">Share</button>
       <label class="toggle"><input id="auto" type="checkbox" checked> Auto-run</label>
       <button id="run" class="primary" title="Run (Ctrl+Enter)">▶ Run</button>
@@ -60,6 +62,15 @@
       </section>
     </section>
   </main>
+  <dialog id="savedDialog" aria-labelledby="savedTitle">
+    <form method="dialog">
+      <h2 id="savedTitle">My projects</h2>
+      <p class="muted small">Saved in this browser only. Use Share to move code to another device.</p>
+      <ul id="savedList" class="saved-list"></ul>
+      <button class="close">Close</button>
+    </form>
+  </dialog>
+
   <p id="toast" class="toast" role="status"></p>
   <script type="module" src="src/app.js"></script>
 </body>

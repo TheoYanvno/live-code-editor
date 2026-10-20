@@ -2,6 +2,9 @@ import { buildDocument, debounce, jsStartLine } from './preview.js';
 import { bridgeScript } from './console-bridge.js';
 import { encodeProject, decodeProject } from './share.js';
 import { TEMPLATES } from './templates.js';
+import { Projects, suggestName } from './storage.js';
+
+const projects = new Projects();
 
 const $ = (id) => document.getElementById(id);
 const editors = { html: $('html'), css: $('css'), js: $('js') };
@@ -33,6 +36,7 @@ function run() {
 }
 
 const runSoon = debounce(run, 500);        // wait for a short pause in typing
+const saveDraftSoon = debounce(() => projects.saveDraft(current()), 800);
 
 // ---- console: messages from the preview frame ----
 
@@ -102,6 +106,7 @@ function updateGutter(ta) {
 for (const ta of Object.values(editors)) {
   ta.addEventListener('input', () => {
     updateGutter(ta);
+    saveDraftSoon();
     if ($('auto').checked) runSoon();
   });
   ta.addEventListener('scroll', () => { ta.previousElementSibling.scrollTop = ta.scrollTop; });
@@ -148,6 +153,7 @@ $('template').onchange = () => {
   const hasWork = Object.values(current()).some((v) => v.trim());
   if (hasWork && !confirm(`Replace your code with "${t.name}"?`)) return;
   setProject(t);
+  projects.saveDraft(t);
   history.replaceState(null, '', location.pathname);       // the old share link no longer matches
 };
 
@@ -165,6 +171,49 @@ $('share').onclick = async () => {
   }
 };
 
+// ---- saving in this browser ----
+
+function saveProject() {
+  const name = prompt('Save as:', suggestName(editors.html.value));
+  if (name === null) return;
+  try {
+    toast(`Saved "${projects.save(name, current())}"`);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function showSaved() {
+  const list = projects.list();
+  $('savedList').innerHTML = list.length ? '' : '<li class="none">Nothing saved yet. Press Save to keep a copy here.</li>';
+  for (const p of list) {
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="name"></span><time></time><button type="button" class="open">Open</button><button type="button" class="delete" aria-label="Delete">✕</button>';
+    li.querySelector('.name').textContent = p.name;
+    li.querySelector('time').textContent = new Date(p.savedAt).toLocaleDateString();
+    li.querySelector('.open').onclick = () => {
+      setProject(p);
+      projects.saveDraft(p);
+      history.replaceState(null, '', location.pathname);
+      $('savedDialog').close();
+      toast(`Opened "${p.name}"`);
+    };
+    li.querySelector('.delete').onclick = () => {
+      if (!confirm(`Delete "${p.name}"?`)) return;
+      projects.remove(p.name);
+      showSaved();
+    };
+    $('savedList').append(li);
+  }
+  if (!$('savedDialog').open) $('savedDialog').showModal();
+}
+
+$('save').onclick = saveProject;
+$('openSaved').onclick = showSaved;
+addEventListener('keydown', (e) => {
+  if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveProject(); }
+});
+
 addEventListener('hashchange', async () => {
   const shared = await decodeProject(location.hash);
   if (shared) setProject(shared);
@@ -179,7 +228,7 @@ document.querySelectorAll('.tabs button').forEach((b) => {
   };
 });
 
-// Open a shared link if there is one, otherwise the starter template
+// Open a shared link if there is one, then the last draft, then the starter template
 const shared = await decodeProject(location.hash);
 if (location.hash && !shared) toast('That share link looks incomplete, so the starter code is shown instead.');
-setProject(shared ?? TEMPLATES.hello);
+setProject(shared ?? projects.draft() ?? TEMPLATES.hello);
