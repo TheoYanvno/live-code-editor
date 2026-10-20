@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live Code Editor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="toolbar">
+    <h1><span class="logo">&lt;/&gt;</span> Live Code Editor</h1>
+    <div class="tools">
+      <label class="toggle"><input id="auto" type="checkbox" checked> Auto-run</label>
+      <button id="run" class="primary" title="Run (Ctrl+Enter)">▶ Run</button>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Panes">
+    <button data-pane="html" aria-pressed="true">HTML</button>
+    <button data-pane="css">CSS</button>
+    <button data-pane="js">JS</button>
+    <button data-pane="result">Result</button>
+  </nav>
+
+  <main class="workspace">
+    <section class="editors">
+      <div class="pane active" data-pane="html">
+        <h2>HTML</h2>
+        <div class="code"><pre class="gutter" aria-hidden="true"></pre><textarea id="html" spellcheck="false" aria-label="HTML code"></textarea></div>
+      </div>
+      <div class="pane" data-pane="css">
+        <h2>CSS</h2>
+        <div class="code"><pre class="gutter" aria-hidden="true"></pre><textarea id="css" spellcheck="false" aria-label="CSS code"></textarea></div>
+      </div>
+      <div class="pane" data-pane="js">
+        <h2>JavaScript</h2>
+        <div class="code"><pre class="gutter" aria-hidden="true"></pre><textarea id="js" spellcheck="false" aria-label="JavaScript code"></textarea></div>
+      </div>
+    </section>
+
+    <section class="output pane" data-pane="result">
+      <div class="frame-bar"><span>Result</span><span id="updated" class="muted"></span></div>
+      <!-- sandbox without allow-same-origin: the code runs in its own origin and can't touch this page or its storage -->
+      <iframe id="preview" title="Result" sandbox="allow-scripts allow-modals allow-forms allow-popups"></iframe>
+    </section>
+  </main>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
