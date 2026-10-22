@@ -17,6 +17,7 @@ Write HTML, CSS and JavaScript and see the result update as you type, like a sma
 - **Share:** copies a link with your code compressed into it; opening the link loads the code
 - **Save** projects by name in your browser (Ctrl+S), and your work is kept automatically as a draft between visits
 - **Templates:** click counter, responsive CSS Grid cards, a to-do list, a canvas animation, and promises with async/await
+- **Project skeletons:** bare-bones starting points shaped like my other projects (hospital portal, character database, Snake, chess coach, SuperBook, task calendar, blog, quote generator, Sudoku solver and sticky notes). Each has the page layout and empty function stubs, with no working code, so you can build it up yourself.
 - Editor comforts: line numbers, Tab inserts spaces, new lines keep the indentation
 - On a phone, tabs switch between HTML, CSS, JS and Result
 
@@ -51,5 +52,6 @@ npm test       # 22 tests (Node 18+)
 | `src/share.js` | Compressing code into the URL and back |
 | `src/storage.js` | Saved projects and the automatic draft |
 | `src/templates.js` | Starter projects |
+| `src/project-templates.js` | Bare-bones skeletons of my other projects |
 
 Built with help from AI coding tools for planning, code review and tests.

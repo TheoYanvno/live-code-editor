@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeProject, decodeProject } from '../src/share.js';
 import { TEMPLATES } from '../src/templates.js';
+import { PROJECT_TEMPLATES } from '../src/project-templates.js';
 
 test('a project survives the trip through the URL', async () => {
   const project = { html: '<h1>Hi ✨</h1>', css: 'h1 { color: red }', js: 'console.log("a & b", `x`)' };
@@ -28,5 +29,16 @@ test('every template has a name and all three panes', () => {
   for (const [id, t] of Object.entries(TEMPLATES)) {
     assert.ok(t.name, id);
     for (const k of ['html', 'css', 'js']) assert.equal(typeof t[k], 'string', `${id}.${k}`);
+  }
+});
+
+test('project skeletons: every one has all three panes, valid JavaScript and no working logic', () => {
+  assert.equal(Object.keys(PROJECT_TEMPLATES).length, 10);
+  for (const [id, t] of Object.entries(PROJECT_TEMPLATES)) {
+    assert.ok(t.name && !(id in TEMPLATES), id);
+    for (const k of ['html', 'css', 'js']) assert.ok(t[k].trim(), `${id}.${k}`);
+    assert.doesNotThrow(() => new Function(t.js), `${id}: JavaScript parses`);
+    // bare bones: function stubs are empty
+    assert.ok(!/function [\w$]+\([^)]*\) \{[^}]/.test(t.js), `${id}: stubs only`);
   }
 });

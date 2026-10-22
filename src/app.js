@@ -2,6 +2,7 @@ import { buildDocument, debounce, jsStartLine } from './preview.js';
 import { bridgeScript } from './console-bridge.js';
 import { encodeProject, decodeProject } from './share.js';
 import { TEMPLATES } from './templates.js';
+import { PROJECT_TEMPLATES } from './project-templates.js';
 import { Projects, suggestName } from './storage.js';
 
 const projects = new Projects();
@@ -145,9 +146,17 @@ function toast(message) {
 
 // ---- templates ----
 
-for (const [id, t] of Object.entries(TEMPLATES)) $('template').add(new Option(t.name, id));
+const ALL_TEMPLATES = { ...TEMPLATES, ...PROJECT_TEMPLATES };
+const group = (label, list) => {
+  const g = document.createElement('optgroup');
+  g.label = label;
+  for (const [id, t] of Object.entries(list)) g.append(new Option(t.name, id));
+  $('template').append(g);
+};
+group('Examples', TEMPLATES);
+group('My projects (bare bones)', PROJECT_TEMPLATES);
 $('template').onchange = () => {
-  const t = TEMPLATES[$('template').value];
+  const t = ALL_TEMPLATES[$('template').value];
   $('template').value = '';
   if (!t) return;
   const hasWork = Object.values(current()).some((v) => v.trim());
