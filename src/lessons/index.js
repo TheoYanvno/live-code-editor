@@ -1,7 +1,7 @@
 // The guides, in the order they're meant to be taken (easiest first). Each one rebuilds one of my
 // portfolio projects. A guide's file is only downloaded when it's opened.
 export const GUIDES = [
-  { id: 'snake', title: 'Snake', emoji: '🐍', level: 'Beginner', time: 'about 2 hours', steps: 0, available: false,
+  { id: 'snake', title: 'Snake', emoji: '🐍', level: 'Beginner', time: 'about 3 hours', steps: 4, available: true,
     summary: 'Canvas drawing, a game loop, keyboard and swipe controls, and keeping game rules separate from drawing.',
     load: () => import('./snake.js') },
   { id: 'quote', title: 'Quote & Joke Generator', emoji: '💬', level: 'Beginner', time: 'about 2 hours', steps: 0, available: false,
