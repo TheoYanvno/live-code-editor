@@ -27,6 +27,24 @@ for (const file of sources) {
     });
   });
 
+  test(`${file}: a full lesson: a plan, a planned time and a quiz for every step, and diagrams`, () => {
+    assert.ok(source.goals.length >= 3, 'list at least 3 goals in the front matter');
+    assert.ok(source.sessions.length >= 1, 'split the guide into sessions (one per sitting / push)');
+    for (const x of source.sessions) assert.ok(x.to - x.from < 6, `session "${x.title}" is too long for one sitting (5 steps at most)`);
+    assert.strictEqual(source.sessions[0].from, 0, 'the first session starts at step 1');
+    assert.strictEqual(source.sessions.at(-1).to, source.steps.length - 1, 'the last session ends at the last step');
+    source.steps.forEach((step, i) => {
+      assert.ok(step.minutes > 0, `step ${i + 1} "${step.title}" needs a time: line`);
+      if (step.kind !== 'read') assert.ok(step.quiz?.length, `step ${i + 1} "${step.title}" needs at least one quiz question`);
+      for (const q of step.quiz ?? []) {
+        assert.ok(q.options.length >= 3, `"${q.q}" needs at least 3 options`);
+        assert.ok(q.why, `"${q.q}" needs a why: line explaining the answer`);
+      }
+    });
+    const diagrams = source.steps.reduce((t, st) => t + (st.body.match(/^```svg/gm)?.length ?? 0), 0);
+    assert.ok(diagrams >= 3, `at least 3 diagrams (found ${diagrams})`);
+  });
+
   test(`${file}: the guide list knows how many steps it has`, () => {
     const entry = GUIDES.find((g) => g.id === source.id);
     assert.ok(entry, `${source.id} is missing from src/lessons/index.js`);

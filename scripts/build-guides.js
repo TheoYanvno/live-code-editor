@@ -5,7 +5,11 @@
 //   check: js | label | /regex/flags | hint      something "Check my work" looks for
 //   ```js blockName         code for the editor: sets that named block in the JS pane
 //   remove: js blockName    removes a block
-// Any other ``` block is an example shown in the explanation.
+//   ## Session: Title       starts a session: a group of steps meant for one sitting
+//   time: 15                minutes the step should take (the pace timer and the lesson plan use it)
+//   quiz: Question?         a multiple-choice question, followed by "- [ ] wrong" / "- [x] right"
+//                           options and an optional "why: explanation" line
+// Any other ``` block is an example shown in the explanation (```svg Caption``` is a diagram).
 // Run: node scripts/build-guides.js   (npm run guides)
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -27,15 +31,23 @@ export function parseGuide(text, file = 'guide') {
   }
 
   const steps = [];
+  const sessions = [];
   let finish = '';
   let current = null;                  // the step being read, or 'finish'
+  let quiz = null;                     // the question being read
   const lines = rest.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const session = line.match(/^## Session:\s*(.+?)\s*$/);
+    if (session) { sessions.push({ title: session[1], first: steps.length }); current = null; quiz = null; continue; }
     const heading = line.match(/^## (Step: (.+)|Finish)\s*$/);
     if (heading) {
-      if (heading[2]) { current = { title: heading[2].trim(), body: [], checks: [] }; steps.push(current); }
-      else current = 'finish';
+      quiz = null;
+      if (heading[2]) {
+        current = { title: heading[2].trim(), body: [], checks: [], quiz: [] };
+        if (sessions.length) current.session = sessions.length - 1;
+        steps.push(current);
+      } else current = 'finish';
       continue;
     }
     if (current === 'finish') { finish += `${line}\n`; continue; }
@@ -55,6 +67,22 @@ export function parseGuide(text, file = 'guide') {
       current.body.push('```');
       continue;
     }
+    const q = line.match(/^quiz:\s*(.+)$/);
+    if (q) { quiz = { q: q[1].trim(), options: [], answer: -1 }; current.quiz.push(quiz); continue; }
+    const option = quiz && line.match(/^- \[( |x)\]\s+(.+)$/);
+    if (option) {
+      if (option[1] === 'x') {
+        if (quiz.answer >= 0) throw new Error(`${file}: two right answers for "${quiz.q}"`);
+        quiz.answer = quiz.options.length;
+      }
+      quiz.options.push(option[2].trim());
+      continue;
+    }
+    const why = quiz && line.match(/^why:\s*(.+)$/);
+    if (why) { quiz.why = why[1].trim(); quiz = null; continue; }
+    if (quiz && line.trim()) quiz = null;           // anything else ends the question
+    const time = line.match(/^time:\s*(\d+)\s*$/);
+    if (time) { current.minutes = Number(time[1]); continue; }
     const kind = line.match(/^kind:\s*(\w+)\s*$/);
     if (kind) { current.kind = kind[1]; continue; }
     const remove = line.match(/^remove:\s*(html|css|js)\s+([\w-]+)\s*$/);
@@ -72,13 +100,23 @@ export function parseGuide(text, file = 'guide') {
   for (const s of steps) {
     s.body = s.body.join('\n').trim();
     if (!s.checks.length) delete s.checks;
+    if (!s.quiz.length) delete s.quiz;
+    for (const q of s.quiz ?? []) {
+      if (q.options.length < 2 || q.answer < 0) throw new Error(`${file}: the question "${q.q}" in "${s.title}" needs options and one [x] right answer`);
+    }
     for (const pane of PANES) {
       for (const name of Object.keys(s[pane] ?? {})) {
         if (start[pane] && !(name in start[pane])) throw new Error(`${file}: block "${pane} ${name}" in "${s.title}" isn't listed in blocks-${pane}`);
       }
     }
   }
-  return { id: meta.id, title: meta.title, start, steps, finish: finish.trim() };
+  const list = (v) => (v ? v.split(';').map((x) => x.trim()).filter(Boolean) : []);
+  return {
+    id: meta.id, title: meta.title,
+    goals: list(meta.goals), prereqs: list(meta.prereqs),
+    sessions: sessions.map((x, n) => ({ title: x.title, from: x.first, to: (sessions[n + 1]?.first ?? steps.length) - 1 })),
+    start, steps, finish: finish.trim(),
+  };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

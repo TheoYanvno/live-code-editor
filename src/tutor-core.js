@@ -3,7 +3,8 @@
 //  - renderMarkdown() turns a step's explanation into safe HTML
 //  - lineDiff() shows what a step adds or changes
 //  - runChecks() looks at the learner's code for what a step asks for
-//  - Progress remembers where each guide was left off
+//  - Progress remembers where each guide was left off, time spent per step and quiz answers
+//  - lessonPlan(), pace() and gradeQuiz() power the lesson plan, the pace timer and the quizzes
 
 const PANES = ['html', 'css', 'js'];
 
@@ -35,7 +36,9 @@ export const startOf = (guide, i) => (i === 0 ? guide.start : guide.steps[i - 1]
 
 // ---------------------------------------------------------------------------------------------
 // Markdown (a small, safe subset): ### headings, paragraphs, - and 1. lists, > tips, ```code```,
-// `inline code`, **bold**, *italic* and [links](https://...). Everything is escaped first.
+// | tables |, `inline code`, **bold**, *italic* and [links](https://...). Everything is escaped first.
+// A ```svg Caption``` block is a diagram: it's shown as an <img> from a data: URL, so any script in
+// it can't run, with the caption underneath.
 
 const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -58,12 +61,25 @@ export function renderMarkdown(md) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const fence = line.match(/^```(\w*)\s*$/);
+    const fence = line.match(/^```(\w*)(?:\s+(.*?))?\s*$/);
     if (fence) {
       flushPara(); flushList();
       const body = [];
       for (i++; i < lines.length && !/^```\s*$/.test(lines[i]); i++) body.push(lines[i]);
-      html.push(`<pre class="snippet"${fence[1] ? ` data-lang="${fence[1]}"` : ''}><code>${escapeHtml(body.join('\n'))}</code></pre>`);
+      if (fence[1] === 'svg') {
+        const caption = fence[2] ?? '';
+        html.push(`<figure class="diagram"><img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(body.join('\n'))}" alt="${escapeHtml(caption)}">${caption ? `<figcaption>${inline(caption)}</figcaption>` : ''}</figure>`);
+      } else html.push(`<pre class="snippet"${fence[1] ? ` data-lang="${fence[1]}"` : ''}><code>${escapeHtml(body.join('\n'))}</code></pre>`);
+      continue;
+    }
+    if (/^\|.*\|\s*$/.test(line) && /^\|[\s:|-]+\|\s*$/.test(lines[i + 1] ?? '')) {   // a table: header row, then |---|
+      flushPara(); flushList();
+      const cells = (row) => row.trim().slice(1, -1).split('|').map((c) => inline(c.trim()));
+      const head = cells(line);
+      const rows = [];
+      for (i += 2; i < lines.length && /^\|.*\|\s*$/.test(lines[i]); i++) rows.push(cells(lines[i]));
+      i--;
+      html.push(`<table class="t-table"><thead><tr>${head.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
       continue;
     }
     const heading = line.match(/^(#{2,4})\s+(.*)$/);
@@ -144,8 +160,53 @@ export function runChecks(code, checks = []) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Progress per guide: the step you're on and the steps you've checked off. Storage can be blocked
-// (private windows), so every read and write is wrapped and the tutor still works without it.
+// Lesson plan, pace and quizzes.
+
+/** Sessions with their steps and planned minutes; a guide without sessions is one session. */
+export function lessonPlan(guide) {
+  const sessions = guide.sessions?.length ? guide.sessions : [{ title: guide.title, from: 0, to: guide.steps.length - 1 }];
+  const plan = sessions.map((x) => {
+    const steps = guide.steps.slice(x.from, x.to + 1).map((st, k) => ({ index: x.from + k, title: st.title, minutes: st.minutes ?? 0 }));
+    return { title: x.title, from: x.from, to: x.to, steps, minutes: steps.reduce((t, st) => t + st.minutes, 0) };
+  });
+  return { sessions: plan, minutes: plan.reduce((t, x) => t + x.minutes, 0) };
+}
+
+/**
+ * How a learner is doing against the planned time: 'early' in the first half, 'on' up to the
+ * planned time, 'over' after it, and 'long' past one and a half times (time to use a hint).
+ */
+export function pace(plannedMinutes, seconds) {
+  if (!plannedMinutes) return { status: 'none', ratio: 0 };
+  const ratio = seconds / (plannedMinutes * 60);
+  const status = ratio < 0.5 ? 'early' : ratio <= 1 ? 'on' : ratio <= 1.5 ? 'over' : 'long';
+  return { status, ratio };
+}
+
+/** "4:05" for 245 seconds, "1:02:03" past an hour. */
+export function clock(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`;
+}
+
+/** picks: { "stepIndex.questionIndex": optionIndex }. Only the first answer to a question counts. */
+export function gradeQuiz(steps, picks = {}) {
+  let total = 0, answered = 0, right = 0;
+  steps.forEach((st, i) => (st.quiz ?? []).forEach((q, k) => {
+    total += 1;
+    const pick = picks[`${i}.${k}`];
+    if (pick === undefined) return;
+    answered += 1;
+    if (pick === q.answer) right += 1;
+  }));
+  return { total, answered, right, percent: answered ? Math.round((100 * right) / answered) : 0 };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Progress per guide: the step you're on, the steps you've checked off, seconds spent on each step
+// and quiz answers. Storage can be blocked (private windows), so every read and write is wrapped
+// and the tutor still works without it.
 
 export class Progress {
   constructor(storage = globalThis.localStorage, key = 'code-tutor-progress') {
@@ -153,13 +214,25 @@ export class Progress {
     this.key = key;
     try { this.data = JSON.parse(storage?.getItem(key)) ?? {}; } catch { this.data = {}; }
   }
-  get(id) { return this.data[id] ?? { step: 0, done: [] }; }
-  set(id, { step, done }) {
-    this.data[id] = { step, done: [...new Set(done)].sort((a, b) => a - b) };
+  get(id) { return { step: 0, done: [], time: {}, quiz: {}, ...this.data[id] }; }
+  set(id, { step, done, time = {}, quiz = {} }) {
+    this.data[id] = { step, done: [...new Set(done)].sort((a, b) => a - b), time, quiz };
     try { this.storage?.setItem(this.key, JSON.stringify(this.data)); } catch { /* not saved, still works */ }
     return this.data[id];
   }
-  complete(id, step) { const p = this.get(id); return this.set(id, { step: p.step, done: [...p.done, step] }); }
+  complete(id, step) { const p = this.get(id); return this.set(id, { ...p, done: [...p.done, step] }); }
   goTo(id, step) { const p = this.get(id); return this.set(id, { ...p, step }); }
+  /** Adds seconds to a step's timer. */
+  addTime(id, step, seconds) {
+    const p = this.get(id);
+    return this.set(id, { ...p, time: { ...p.time, [step]: Math.round((p.time[step] ?? 0) + seconds) } });
+  }
+  /** Saves a quiz answer; a question keeps its first answer. */
+  answer(id, key, option) {
+    const p = this.get(id);
+    if (key in p.quiz) return p;
+    return this.set(id, { ...p, quiz: { ...p.quiz, [key]: option } });
+  }
+  totalTime(id) { return Object.values(this.get(id).time).reduce((a, b) => a + b, 0); }
   reset(id) { delete this.data[id]; try { this.storage?.setItem(this.key, JSON.stringify(this.data)); } catch { /* ignore */ } }
 }

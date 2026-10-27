@@ -284,6 +284,45 @@ pre.diff .same { color: var(--muted); }
 pre.diff .gap { color: var(--gutter); text-align: center; }
 .t-nav { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 
+/* Lesson plan, pace timer, quizzes, diagrams and tables */
+.pace { position: relative; overflow: hidden; display: block; margin: 4px 0 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: .82rem; color: var(--text); background: var(--editor); }
+.pace .p-fill { position: absolute; inset: 0 auto 0 0; width: var(--fill, 0%); background: rgb(63 182 123 / .16); transition: width 1s linear; z-index: 0; }
+.pace > :not(.p-fill) { position: relative; }
+.pace.over .p-fill { background: rgb(245 215 110 / .2); }
+.pace.long .p-fill { background: rgb(255 160 90 / .22); }
+.pace .p-time { font-family: var(--mono); font-weight: 700; }
+.pace .p-note { color: var(--muted); }
+.t-guide .link { font-size: .8rem; margin-left: 8px; }
+.plan { list-style: none; padding: 0 !important; display: flex; flex-direction: column; gap: 10px; }
+.plan-session { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--editor); }
+.ps-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: .9rem; }
+.ps-bar { display: block; height: 6px; margin: 8px 0; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.ps-bar span { display: block; height: 100%; width: 0; background: #3fb67b; }
+.ps-steps { list-style: none; padding: 0 !important; margin: 0 !important; font-size: .85rem; }
+.ps-steps li { display: flex; justify-content: space-between; gap: 8px; }
+.ps-steps .link { text-align: left; font-size: .85rem; }
+.t-quiz { margin: 16px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.t-quiz h3 { margin: 0 0 8px; padding: 0; font: 700 .95rem system-ui, sans-serif; letter-spacing: 0; text-transform: none; color: var(--css); }
+.q + .q { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.q-text { margin: 0 0 8px; font-size: .92rem; }
+.q-text code, .q-opt code, .q-why code { font-family: var(--mono); font-size: .86em; color: var(--js); }
+.q-options { display: flex; flex-direction: column; gap: 6px; }
+.q-opt { text-align: left; text-transform: none; letter-spacing: 0; font-size: .88rem; padding: 7px 10px; border-radius: 8px; }
+.q-opt:disabled { cursor: default; opacity: .75; }
+.q-opt.right { opacity: 1; border-color: #3fb67b; background: rgb(63 182 123 / .16); }
+.q-opt.wrong { opacity: 1; border-color: var(--error); background: rgb(255 122 122 / .12); }
+.q-why { margin: 8px 0 0; font-size: .85rem; }
+.q-why.pass { color: #3fb67b; } .q-why.fail { color: var(--warn); }
+.diagram { margin: 12px 0; padding: 10px; background: #f7f8fb; border-radius: 10px; text-align: center; }
+.diagram img { max-width: 100%; height: auto; }
+.diagram figcaption { margin-top: 6px; font-size: .8rem; color: #3b4352; }
+.t-table { border-collapse: collapse; margin: 8px 0 12px; font-size: .85rem; }
+.t-table th, .t-table td { border: 1px solid var(--line); padding: 4px 10px; text-align: left; }
+.t-table th { background: var(--editor); }
+.t-stats { display: grid; gap: 8px; margin: 8px 0 14px; }
+.t-stats div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--editor); font-size: .9rem; }
+.t-stats dt { color: var(--muted); } .t-stats dd { margin: 0; font-weight: 600; text-align: right; }
+
 /* Medium screens: guide on the left, editors above the result on the right */
 @media (min-width: 761px) and (max-width: 1100px) {
   body.tutoring .workspace { grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
