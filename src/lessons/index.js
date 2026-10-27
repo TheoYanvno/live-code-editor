@@ -1,0 +1,26 @@
+// The guides, in the order they're meant to be taken (easiest first). Each one rebuilds one of my
+// portfolio projects. A guide's file is only downloaded when it's opened.
+export const GUIDES = [
+  { id: 'snake', title: 'Snake', emoji: '🐍', level: 'Beginner', time: 'about 2 hours', steps: 0, available: false,
+    summary: 'Canvas drawing, a game loop, keyboard and swipe controls, and keeping game rules separate from drawing.',
+    load: () => import('./snake.js') },
+  { id: 'quote', title: 'Quote & Joke Generator', emoji: '💬', level: 'Beginner', time: 'about 2 hours', steps: 0, available: false,
+    summary: 'Arrays of data, random picks, tabs, favorites saved in the browser, and sharing.',
+    load: () => import('./quote.js') },
+  { id: 'calendar', title: 'Task Calendar', emoji: '📅', level: 'Beginner+', time: 'about 3 hours', steps: 0, available: false,
+    summary: 'Dates, a month grid, repeating tasks, holidays, themes and saving.', load: () => import('./calendar.js') },
+  { id: 'sudoku', title: 'Sudoku Solver', emoji: '🔢', level: 'Intermediate', time: 'about 3 hours', steps: 0, available: false,
+    summary: 'A 9 x 9 grid, rule checks, backtracking search, and making puzzles with one solution.', load: () => import('./sudoku.js') },
+  { id: 'sticky', title: 'Sticky Notes', emoji: '🗒️', level: 'Intermediate', time: 'about 3 hours', steps: 0, available: false,
+    summary: 'Draggable notes, tasks with reminders, and how the Electron desktop version wraps it.', load: () => import('./sticky.js') },
+  { id: 'bonfire', title: 'Bonfire Notes (blog)', emoji: '🔥', level: 'Intermediate', time: 'about 2 hours', steps: 0, available: false,
+    summary: 'Markdown posts, templates, and how a static site generator turns them into pages.', load: () => import('./bonfire.js') },
+  { id: 'marvel', title: 'Marvel Character Database', emoji: '🦸', level: 'Intermediate', time: 'about 3 hours', steps: 0, available: false,
+    summary: 'Tables, joins and searches in SQL, and the cards and profile pages on top.', load: () => import('./marvel.js') },
+  { id: 'chess', title: 'Chess Coach', emoji: '♟️', level: 'Advanced', time: 'about 4 hours', steps: 0, available: false,
+    summary: 'Board state, legal moves, a computer opponent with minimax, and grading moves.', load: () => import('./chess.js') },
+  { id: 'superbook', title: 'SuperBook', emoji: '📖', level: 'Advanced', time: 'about 3 hours', steps: 0, available: false,
+    summary: 'Reading from web APIs, matching questions to answers, translations, and writing in sand on a canvas.', load: () => import('./superbook.js') },
+  { id: 'gotham', title: 'Gotham Hospital Patient Portal', emoji: '🏥', level: 'Advanced', time: 'about 4 hours', steps: 0, available: false,
+    summary: 'Schedules, booking rules, patient records, roles and sign-in, and the SQL behind them.', load: () => import('./gotham.js') },
+];
