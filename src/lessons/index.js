@@ -17,7 +17,7 @@ export const GUIDES = [
     summary: 'Markdown posts, templates, a guides hub, and the Python static site generator that turns them into pages.', load: () => import('./bonfire.js') },
   { id: 'marvel', title: 'Marvel Character Database', emoji: '🦸', level: 'Intermediate', time: 'about 3 hours', steps: 0, available: false,
     summary: 'SQL tables, joins and search over 214 characters, MCU appearances, relationships, and cards with a photo slot.', load: () => import('./marvel.js') },
-  { id: 'chess', title: 'Chess Coach', emoji: '♟️', level: 'Advanced', time: 'about 3.5 hours', steps: 10, available: true,
+  { id: 'chess', title: 'Chess Coach', emoji: '♟️', level: 'Advanced', time: 'about 3.5 hours', steps: 12, available: true,
     summary: 'Board state, every legal move, a computer opponent with alpha-beta search, and the coach that grades and explains every move.', load: () => import('./chess.js') },
   { id: 'superbook', title: 'SuperBook', emoji: '📖', level: 'Advanced', time: 'about 3 hours', steps: 0, available: false,
     summary: 'Reading from web APIs, matching questions to answers, translations, and writing in sand on a canvas.', load: () => import('./superbook.js') },

@@ -1489,6 +1489,456 @@ $('new').onclick = () => {
 };
 ```
 
+## Session: The coach
+
+## Step: Grading every move
+time: 20
+
+Here's what makes this more than a chess game: after each of your moves, the coach tells you how good it was and why.
+
+The idea is simple once you have `rankMoves()`. Before your move, score every legal move. The best one's score minus your move's score is how much you **lost**:
+
+```svg The grade comes from the centipawns your move lost compared with the best move
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 130" font-family="sans-serif"><rect x="20" y="40" width="380" height="16" rx="8" fill="#e2e8f0"/><rect x="20.0" y="40" width="15.0" height="16" fill="#16a34a" opacity="0.75"/><text x="20.0" y="34" font-size="10" fill="#1c2430">0</text><text x="22.0" y="74" font-size="10" fill="#16a34a">Best</text><rect x="35.0" y="40" width="65.0" height="16" fill="#16a34a" opacity="0.75"/><text x="35.0" y="34" font-size="10" fill="#1c2430">15</text><text x="37.0" y="88" font-size="10" fill="#16a34a">Excellent</text><rect x="100.0" y="40" width="80.0" height="16" fill="#65a30d" opacity="0.75"/><text x="100.0" y="34" font-size="10" fill="#1c2430">80</text><text x="102.0" y="74" font-size="10" fill="#65a30d">Good</text><rect x="180.0" y="40" width="160.0" height="16" fill="#d97706" opacity="0.75"/><text x="180.0" y="34" font-size="10" fill="#1c2430">160</text><text x="182.0" y="88" font-size="10" fill="#d97706">Inaccuracy</text><rect x="340.0" y="40" width="60.0" height="16" fill="#b91c1c" opacity="0.75"/><text x="340.0" y="34" font-size="10" fill="#1c2430">320</text><text x="342.0" y="74" font-size="10" fill="#b91c1c">Mistake</text><text x="345" y="74" font-size="10" fill="#b91c1c">Blunder: 320+</text><text x="210" y="118" text-anchor="middle" font-size="11" fill="#475569">centipawns lost compared with the best move (100 = one pawn)</text></svg>
+```
+
+| Loss | Grade |
+|---|---|
+| 0 | Best |
+| up to 15 | Excellent |
+| up to 80 | Good |
+| up to 160 | Inaccuracy |
+| up to 320 | Mistake |
+| more | Blunder |
+
+Mates are special: if you had a forced checkmate and played something else, that's a Blunder whatever the numbers say.
+
+`reviewMove(before, move)` returns `{ grade, loss, name, bestName, messages }`. The messages explain in plain words: a missed checkmate ("Look for checks first!"), a move that walks into one, "Nf3 was stronger here", or "That matches the coach's top choice". `moveName()` writes moves the way chess books do: `Nf3`, `exd5`, `O-O`, `e8=Q`, with `+` for check and `#` for mate.
+
+`play()` now calls `coachReview()` for your moves (not the computer's) and puts a note at the top of the feed, colored by the grade.
+
+### Try it
+
+Play a normal opening move: Best or Good. Then leave your queen where a pawn can take it and see the grade.
+
+check: js | the grade scale | /const\s+GRADES\s*=/
+check: js | a reviewMove() function | /function\s+reviewMove\s*\(/
+check: js | loss is best minus played | /best\.score\s*-\s*played\.score/
+check: js | reviews appear in the feed | /function\s+coachReview\s*\(/
+
+quiz: The best move scores +40 and yours scores -90. What is the grade?
+- [ ] Good (loss 50)
+- [x] Inaccuracy (loss 130)
+- [ ] Blunder (loss 900)
+why: 40 - (-90) = 130 centipawns lost, which is between 80 and 160.
+quiz: Why does the coach grade against the best move instead of the position's score?
+- [x] A bad position isn't your fault this move; what matters is whether you made the most of it
+- [ ] Position scores are always 0
+- [ ] It's faster
+why: Losing 50 in a lost position is still a good move if every other move loses more.
+
+```js coach
+const NAMES = { P: 'pawn', N: 'knight', B: 'bishop', R: 'rook', Q: 'queen', K: 'king' };
+const nameOf = (p) => NAMES[p.toUpperCase()];
+const isMate = (score) => Math.abs(score) > MATE - 100;
+const same = (a, b) => a.from === b.from && a.to === b.to && (a.promotion || '') === (b.promotion || '');
+
+// Short move names like Nf3, exd5, O-O, e8=Q and Qxf7#.
+function moveName(s, m) {
+  let name;
+  if (m.castle) name = m.castle === 'K' ? 'O-O' : 'O-O-O';
+  else {
+    const type = m.piece.toUpperCase();
+    const x = m.captured ? 'x' : '';
+    name = type === 'P'
+      ? (x ? FILES[fileOf(m.from)] : '') + x + sqName(m.to) + (m.promotion ? '=' + m.promotion.toUpperCase() : '')
+      : type + x + sqName(m.to);
+  }
+  const next = makeMove(s, m);
+  if (inCheck(next)) name += legalMoves(next).length ? '+' : '#';
+  return name;
+}
+
+// Grades by how many centipawns your move lost compared with the best move.
+const GRADES = [
+  { max: 0, label: 'Best', tone: 'great' },
+  { max: 15, label: 'Excellent', tone: 'great' },
+  { max: 80, label: 'Good', tone: 'good' },
+  { max: 160, label: 'Inaccuracy', tone: 'warn' },
+  { max: 320, label: 'Mistake', tone: 'bad' },
+  { max: Infinity, label: 'Blunder', tone: 'bad' },
+];
+const gradeFor = (loss) => GRADES.find((g) => loss <= g.max);
+
+// Scores every move from the position before yours, then compares yours with the best.
+function reviewMove(before, move) {
+  const ranked = rankMoves(before, 2);
+  const best = ranked[0];
+  const played = ranked.find((r) => same(r.move, move));
+  const loss = Math.max(0, best.score - played.score);
+  const grade = isMate(best.score) && best.score > 0 && !isMate(played.score) ? gradeFor(Infinity) : gradeFor(loss);
+  const bestName = moveName(before, best.move);
+  const messages = [];
+
+  if (isMate(best.score) && best.score > 0 && !same(best.move, move)) {
+    messages.push({ good: false, text: `You had a forced checkmate starting with ${bestName}. Look for checks first!` });
+  }
+  if (isMate(played.score) && played.score < 0) {
+    messages.push({ good: false, text: 'This move lets your opponent force checkmate. Before moving, ask: "What checks does my opponent have?"' });
+  }
+  if (!messages.length) {
+    if (same(best.move, move)) messages.push({ good: true, text: 'That matches the coach’s top choice.' });
+    else if (loss > 80) messages.push({ good: false, text: `${bestName} was stronger here. What does ${bestName} attack or defend?` });
+    else messages.push({ good: true, text: `About as strong as the top move (${bestName}).` });
+  }
+  return { grade, loss, name: moveName(before, move), bestName, messages };
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const GLYPH = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' };   // solid shapes; CSS colors them white or black
+let state = fromFen(START_FEN);
+let selected = null;           // the square you clicked first
+let lastMove = null;
+let busy = false;              // true while the computer is thinking
+let reviews = [];              // the coach's review of each of your moves
+
+// The moves the piece on square i can really make.
+const movesFrom = (i) => legalMoves(state).filter((m) => m.from === i);
+
+function render() {
+  const board = $('board');
+  board.innerHTML = '';
+  const targets = selected === null ? [] : movesFrom(selected);
+  const checkSq = inCheck(state) ? kingSquare(state, state.turn) : -1;
+  for (let i = 0; i < 64; i++) {
+    const sq = document.createElement('button');
+    const dark = (Math.floor(i / 8) + (i % 8)) % 2 === 1;
+    sq.className = `sq ${dark ? 'dark' : 'light'}`;
+    sq.dataset.i = i;
+    sq.setAttribute('aria-label', sqName(i) + (state.board[i] ? ` ${state.board[i]}` : ''));
+    if (lastMove && (i === lastMove.from || i === lastMove.to)) sq.classList.add('last');
+    if (i === selected) sq.classList.add('sel');
+    const t = targets.find((m) => m.to === i);
+    if (t) sq.classList.add(t.captured ? 'capture' : 'target');
+    if (i === checkSq) sq.classList.add('check');
+    const p = state.board[i];
+    if (p) sq.innerHTML = `<span class="piece ${colorOf(p)}">${GLYPH[p.toUpperCase()]}</span>`;
+    board.appendChild(sq);
+  }
+  const result = gameResult(state);
+  if (result.over) {
+    $('status').textContent = result.winner ? `${result.winner === 'w' ? 'White' : 'Black'} wins by ${result.reason}!` : `Draw by ${result.reason}.`;
+  } else if (busy) {
+    $('status').textContent = 'Computer is thinking…';
+  } else {
+    $('status').textContent = `${state.turn === 'w' ? 'White' : 'Black'} to move${inCheck(state) ? ' (check!)' : ''}`;
+  }
+  return result;
+}
+
+function play(move, byYou = true) {
+  const before = state;
+  state = makeMove(state, move);
+  lastMove = move;
+  selected = null;
+  if (byYou) coachReview(before, move);
+  const result = render();
+  if (!result.over && state.turn === 'b') {   // you play white; the computer answers
+    busy = true;
+    render();
+    setTimeout(computerMove, 30);              // let the page show "thinking…" first
+  }
+}
+
+function computerMove() {
+  const move = chooseMove(state, $('level').value);
+  busy = false;
+  play(move, false);
+}
+
+$('board').addEventListener('click', (e) => {
+  const sq = e.target.closest('.sq');
+  if (!sq || busy || state.turn !== 'w') return;
+  const i = Number(sq.dataset.i);
+  // second click: a move to this square? (a promoting pawn always becomes a queen here)
+  const move = selected === null ? null : movesFrom(selected).find((m) => m.to === i && (!m.promotion || 'Qq'.includes(m.promotion)));
+  if (move) return play(move);
+  selected = colorOf(state.board[i]) === state.turn ? i : null;   // first click: pick up your own piece
+  render();
+});
+
+// Shows the coach's grade and explanation at the top of the feed.
+function coachReview(before, move) {
+  const r = reviewMove(before, move);
+  reviews.push(r);
+  const note = document.createElement('li');
+  note.className = `note ${r.grade.tone}`;
+  note.innerHTML = `<strong>${r.name}: ${r.grade.label}</strong>` + r.messages.map((m) => `<p>${m.good ? '✅' : '⚠️'} ${m.text}</p>`).join('');
+  $('feed').prepend(note);
+}
+
+$('new').onclick = () => {
+  state = fromFen(START_FEN);
+  selected = null;
+  lastMove = null;
+  busy = false;
+  reviews = [];
+  $('feed').innerHTML = '';
+  render();
+};
+```
+
+## Step: Hints, hanging pieces and the game report
+time: 15
+
+Three more coaching tools.
+
+**Hanging pieces.** The most common beginner mistake is leaving a piece where it can be taken for free. `hangingPiece(after, side)` asks the search for the opponent's best reply right after your move: if it's a capture of your piece, that piece was hanging. When your move also lost at least 120 centipawns, the coach says exactly what happened: "Your queen on h5 can be taken by the knight on f6. Check that every piece is protected before you move."
+
+**Hints.** The 💡 button calls `hint(state)`. It warns if you're in check, then pretends it's your opponent's turn (a copy with `turn` flipped) to see if they're threatening one of your pieces. Finally it points at the piece the best move uses ("Consider moving your knight from g1"), and outlines that square on the board, without giving the whole move away.
+
+**The game report.** When the game ends, `gameReport()` counts each grade and turns your average loss into an accuracy score: `Math.round(100 * Math.exp(-avgLoss / 250))`. No loss is 100%, an average loss of 250 is about 37%, and it never drops below 0. Each loss is capped at 1,000 first, so one huge blunder can't swamp a whole game.
+
+| Average loss | Accuracy |
+|---|---|
+| 0 | 100% |
+| 25 | 90% |
+| 100 | 67% |
+| 250 | 37% |
+
+### Try it
+
+Press 💡 Hint at the start. Then play a short game to the end, for example the four-move checkmate from step 7, and read your report.
+
+check: js | a hangingPiece() function | /function\s+hangingPiece\s*\(/
+check: js | a hint() function | /function\s+hint\s*\(/
+check: js | accuracy from the average loss | /Math\.exp\(\s*-avgLoss\s*\/\s*250\s*\)/
+check: js | the Hint button is wired up | /\$\(\s*['"]hint['"]\s*\)\.onclick/
+
+quiz: How does hint() find out what your opponent is threatening?
+- [ ] It asks the player
+- [x] It searches a copy of the position with the turn flipped, as if the opponent could move now
+- [ ] It looks at the last move only
+why: Flipping the turn on a copy lets the same search code answer "what would they do if it were their move?"
+quiz: Why cap each move's loss at 1,000 before averaging?
+- [x] So one huge blunder (like missing mate, worth 100,000) doesn't make every other move irrelevant
+- [ ] Because the scale only goes to 1,000
+- [ ] To make the game shorter
+why: Mate scores are enormous; without a cap a single miss would push accuracy to 0.
+
+```js coach
+const NAMES = { P: 'pawn', N: 'knight', B: 'bishop', R: 'rook', Q: 'queen', K: 'king' };
+const nameOf = (p) => NAMES[p.toUpperCase()];
+const isMate = (score) => Math.abs(score) > MATE - 100;
+const same = (a, b) => a.from === b.from && a.to === b.to && (a.promotion || '') === (b.promotion || '');
+
+// Short move names like Nf3, exd5, O-O, e8=Q and Qxf7#.
+function moveName(s, m) {
+  let name;
+  if (m.castle) name = m.castle === 'K' ? 'O-O' : 'O-O-O';
+  else {
+    const type = m.piece.toUpperCase();
+    const x = m.captured ? 'x' : '';
+    name = type === 'P'
+      ? (x ? FILES[fileOf(m.from)] : '') + x + sqName(m.to) + (m.promotion ? '=' + m.promotion.toUpperCase() : '')
+      : type + x + sqName(m.to);
+  }
+  const next = makeMove(s, m);
+  if (inCheck(next)) name += legalMoves(next).length ? '+' : '#';
+  return name;
+}
+
+// Grades by how many centipawns your move lost compared with the best move.
+const GRADES = [
+  { max: 0, label: 'Best', tone: 'great' },
+  { max: 15, label: 'Excellent', tone: 'great' },
+  { max: 80, label: 'Good', tone: 'good' },
+  { max: 160, label: 'Inaccuracy', tone: 'warn' },
+  { max: 320, label: 'Mistake', tone: 'bad' },
+  { max: Infinity, label: 'Blunder', tone: 'bad' },
+];
+const gradeFor = (loss) => GRADES.find((g) => loss <= g.max);
+
+// After a move, can the side to move now take one of `side`'s pieces? (their best reply, if it's a capture)
+function hangingPiece(after, side) {
+  const m = rankMoves(after, 1)[0]?.move;
+  return m && m.captured && colorOf(m.captured) === side ? m : null;
+}
+
+// Scores every move from the position before yours, then compares yours with the best.
+function reviewMove(before, move) {
+  const ranked = rankMoves(before, 2);
+  const best = ranked[0];
+  const played = ranked.find((r) => same(r.move, move));
+  const loss = Math.max(0, best.score - played.score);
+  const grade = isMate(best.score) && best.score > 0 && !isMate(played.score) ? gradeFor(Infinity) : gradeFor(loss);
+  const bestName = moveName(before, best.move);
+  const messages = [];
+
+  if (isMate(best.score) && best.score > 0 && !same(best.move, move)) {
+    messages.push({ good: false, text: `You had a forced checkmate starting with ${bestName}. Look for checks first!` });
+  }
+  if (isMate(played.score) && played.score < 0) {
+    messages.push({ good: false, text: 'This move lets your opponent force checkmate. Before moving, ask: "What checks does my opponent have?"' });
+  }
+  const threat = hangingPiece(makeMove(before, move), before.turn);
+  if (threat && loss >= 120) {
+    messages.push({ good: false, text: `Your ${nameOf(threat.captured)} on ${sqName(threat.to)} can be taken by the ${nameOf(threat.piece)} on ${sqName(threat.from)}. Check that every piece is protected before you move.` });
+  }
+  if (!messages.length) {
+    if (same(best.move, move)) messages.push({ good: true, text: 'That matches the coach’s top choice.' });
+    else if (loss > 80) messages.push({ good: false, text: `${bestName} was stronger here. What does ${bestName} attack or defend?` });
+    else messages.push({ good: true, text: `About as strong as the top move (${bestName}).` });
+  }
+  return { grade, loss, name: moveName(before, move), bestName, messages };
+}
+
+// A hint before you move: warn about threats, then point at the piece the best move uses.
+function hint(s) {
+  const best = rankMoves(s, 2)[0];
+  const notes = [];
+  if (inCheck(s)) notes.push('You are in check: move the king, block, or capture the checking piece.');
+  const flipped = { ...s, turn: s.turn === 'w' ? 'b' : 'w', ep: -1 };     // pretend it's their turn
+  if (!inCheck(flipped)) {
+    const threat = hangingPiece(flipped, s.turn);
+    if (threat) notes.push(`Watch out: your ${nameOf(threat.captured)} on ${sqName(threat.to)} is under attack.`);
+  }
+  notes.push(`Consider moving your ${nameOf(best.move.piece)} from ${sqName(best.move.from)}.`);
+  return { move: best.move, notes };
+}
+
+// Accuracy: 100% when you never lose anything, sliding down as the average loss grows.
+function gameReport(reviews) {
+  const counts = {};
+  for (const r of reviews) counts[r.grade.label] = (counts[r.grade.label] || 0) + 1;
+  const avgLoss = reviews.reduce((sum, r) => sum + Math.min(r.loss, 1000), 0) / reviews.length;
+  const accuracy = Math.round(100 * Math.exp(-avgLoss / 250));
+  return { accuracy, counts };
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const GLYPH = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' };   // solid shapes; CSS colors them white or black
+let state = fromFen(START_FEN);
+let selected = null;           // the square you clicked first
+let lastMove = null;
+let busy = false;              // true while the computer is thinking
+let reviews = [];              // the coach's review of each of your moves
+let hintSquares = [];
+
+// The moves the piece on square i can really make.
+const movesFrom = (i) => legalMoves(state).filter((m) => m.from === i);
+
+function render() {
+  const board = $('board');
+  board.innerHTML = '';
+  const targets = selected === null ? [] : movesFrom(selected);
+  const checkSq = inCheck(state) ? kingSquare(state, state.turn) : -1;
+  for (let i = 0; i < 64; i++) {
+    const sq = document.createElement('button');
+    const dark = (Math.floor(i / 8) + (i % 8)) % 2 === 1;
+    sq.className = `sq ${dark ? 'dark' : 'light'}`;
+    sq.dataset.i = i;
+    sq.setAttribute('aria-label', sqName(i) + (state.board[i] ? ` ${state.board[i]}` : ''));
+    if (lastMove && (i === lastMove.from || i === lastMove.to)) sq.classList.add('last');
+    if (i === selected) sq.classList.add('sel');
+    const t = targets.find((m) => m.to === i);
+    if (t) sq.classList.add(t.captured ? 'capture' : 'target');
+    if (i === checkSq) sq.classList.add('check');
+    if (hintSquares.includes(i)) sq.classList.add('hint');
+    const p = state.board[i];
+    if (p) sq.innerHTML = `<span class="piece ${colorOf(p)}">${GLYPH[p.toUpperCase()]}</span>`;
+    board.appendChild(sq);
+  }
+  const result = gameResult(state);
+  if (result.over) {
+    $('status').textContent = result.winner ? `${result.winner === 'w' ? 'White' : 'Black'} wins by ${result.reason}!` : `Draw by ${result.reason}.`;
+  } else if (busy) {
+    $('status').textContent = 'Computer is thinking…';
+  } else {
+    $('status').textContent = `${state.turn === 'w' ? 'White' : 'Black'} to move${inCheck(state) ? ' (check!)' : ''}`;
+  }
+  return result;
+}
+
+function play(move, byYou = true) {
+  const before = state;
+  state = makeMove(state, move);
+  lastMove = move;
+  selected = null;
+  hintSquares = [];
+  if (byYou) coachReview(before, move);
+  const result = render();
+  if (result.over) return showReport();
+  if (!result.over && state.turn === 'b') {   // you play white; the computer answers
+    busy = true;
+    render();
+    setTimeout(computerMove, 30);              // let the page show "thinking…" first
+  }
+}
+
+function computerMove() {
+  const move = chooseMove(state, $('level').value);
+  busy = false;
+  play(move, false);
+}
+
+$('board').addEventListener('click', (e) => {
+  const sq = e.target.closest('.sq');
+  if (!sq || busy || state.turn !== 'w') return;
+  const i = Number(sq.dataset.i);
+  // second click: a move to this square? (a promoting pawn always becomes a queen here)
+  const move = selected === null ? null : movesFrom(selected).find((m) => m.to === i && (!m.promotion || 'Qq'.includes(m.promotion)));
+  if (move) return play(move);
+  selected = colorOf(state.board[i]) === state.turn ? i : null;   // first click: pick up your own piece
+  render();
+});
+
+// Shows the coach's grade and explanation at the top of the feed.
+function coachReview(before, move) {
+  const r = reviewMove(before, move);
+  reviews.push(r);
+  const note = document.createElement('li');
+  note.className = `note ${r.grade.tone}`;
+  note.innerHTML = `<strong>${r.name}: ${r.grade.label}</strong>` + r.messages.map((m) => `<p>${m.good ? '✅' : '⚠️'} ${m.text}</p>`).join('');
+  $('feed').prepend(note);
+}
+
+$('hint').onclick = () => {
+  if (busy || state.turn !== 'w' || gameResult(state).over) return;
+  const h = hint(state);
+  hintSquares = [h.move.from];
+  const note = document.createElement('li');
+  note.className = 'note tip';
+  note.innerHTML = '<strong>💡 Hint</strong>' + h.notes.map((t) => `<p>${t}</p>`).join('');
+  $('feed').prepend(note);
+  render();
+};
+
+function showReport() {
+  if (!reviews.length) return;
+  const { accuracy, counts } = gameReport(reviews);
+  $('report').innerHTML = `<h2>Game report</h2><p>Accuracy: <strong>${accuracy}%</strong></p>`
+    + `<p>${Object.entries(counts).map(([k, n]) => `${k}: ${n}`).join(' · ')}</p>`;
+  $('report').hidden = false;
+}
+
+$('new').onclick = () => {
+  state = fromFen(START_FEN);
+  selected = null;
+  lastMove = null;
+  busy = false;
+  reviews = [];
+  $('feed').innerHTML = '';
+  hintSquares = [];
+  $('report').hidden = true;
+  render();
+};
+```
+
 ## Finish
 
 ### What you learned
