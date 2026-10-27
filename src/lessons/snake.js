@@ -20,6 +20,11 @@ export default {
    "title": "A snake on the board",
    "from": 0,
    "to": 3
+  },
+  {
+   "title": "Make it a game",
+   "from": 4,
+   "to": 7
   }
  ],
  "start": {
@@ -281,6 +286,255 @@ export default {
     "state": "// The snake is a list of cells, head first. Each cell is { x, y } in grid units, not pixels.\nlet snake = [\n  { x: 10, y: 10 },   // head\n  { x: 9, y: 10 },\n  { x: 8, y: 10 },    // tail\n];\nlet direction = 'right';",
     "rules": "// Move the snake one cell: add a new head in front, take the last cell off the tail.\nfunction step() {\n  const d = DIRECTIONS[direction];\n  const head = { x: snake[0].x + d.x, y: snake[0].y + d.y };\n  snake.unshift(head);   // add to the front\n  snake.pop();           // remove from the back\n}",
     "go": "draw();\ndocument.getElementById('start').onclick = () => { step(); draw(); };   // for now, each click moves one cell"
+   }
+  },
+  {
+   "title": "The game loop",
+   "body": "Real games don't wait for clicks: they run a **game loop**. Ours is simple: move, draw, then wait a moment and do it again.\n\n```svg The game loop: move, draw, schedule the next tick, wait, repeat\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 420 145\" width=\"420\" height=\"145\" font-family=\"system-ui, sans-serif\" font-size=\"12\"><defs><marker id=\"m\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto\"><path d=\"M0 0L10 5L0 10z\" fill=\"#334155\"/></marker></defs><path d=\"M130 37 H175\" stroke=\"#334155\" stroke-width=\"2\" marker-end=\"url(#m)\"/><path d=\"M240 55 V95\" stroke=\"#334155\" stroke-width=\"2\" marker-end=\"url(#m)\"/><path d=\"M175 112 H130\" stroke=\"#334155\" stroke-width=\"2\" marker-end=\"url(#m)\"/><path d=\"M75 95 V55\" stroke=\"#334155\" stroke-width=\"2\" marker-end=\"url(#m)\"/><rect x=\"20\" y=\"20\" width=\"110\" height=\"34\" rx=\"17\" fill=\"#eef2f8\" stroke=\"#64748b\"/><text x=\"75\" y=\"42\" text-anchor=\"middle\">step()</text><rect x=\"185\" y=\"20\" width=\"110\" height=\"34\" rx=\"17\" fill=\"#eef2f8\" stroke=\"#64748b\"/><text x=\"240\" y=\"42\" text-anchor=\"middle\">draw()</text><rect x=\"185\" y=\"95\" width=\"110\" height=\"34\" rx=\"17\" fill=\"#eef2f8\" stroke=\"#64748b\"/><text x=\"240\" y=\"117\" text-anchor=\"middle\">setTimeout(tick)</text><rect x=\"20\" y=\"95\" width=\"110\" height=\"34\" rx=\"17\" fill=\"#eef2f8\" stroke=\"#64748b\"/><text x=\"75\" y=\"117\" text-anchor=\"middle\">wait 150 ms</text><text x=\"300\" y=\"80\" fill=\"#55607a\">clearTimeout(timer)</text><text x=\"300\" y=\"96\" fill=\"#55607a\">stops the loop</text></svg>\n```\n\n```js\nfunction tick() {\n  step();\n  draw();\n  timer = setTimeout(tick, 150);   // run tick again in 150 milliseconds\n}\n```\n\n`setTimeout(fn, ms)` runs a function once after a delay. Because `tick` schedules itself again, it keeps going forever. Saving the id it returns in `timer` lets us stop it with `clearTimeout(timer)`.\n\n> Tip: why not `setInterval`? Later the snake speeds up as you score. With `setTimeout` each tick can choose a new delay, which `setInterval` can't do.\n\n### Starting a new game\n\nEach game should start from the same place, so move the starting values into a `newGame()` function. Declaring `let snake, direction, timer;` at the top (without values) and filling them in `newGame()` means pressing Start always resets everything.\n\n`start()` stops any loop that's already running (otherwise pressing Start twice would run two loops and the snake would move twice as fast), sets up a new game, and starts ticking.\n\n### What to write\n\n1. Replace the snake array with `let snake, direction, timer;` and a `newGame()` function that sets the snake (in the middle: `Math.floor(SIZE / 2)`) and the direction.\n2. A `tick()` function: step, draw, schedule the next tick.\n3. A `start()` function: `clearTimeout(timer)`, `newGame()`, `draw()`, `tick()`.\n4. At the bottom, call `newGame()` and `draw()` so the board isn't empty, and make the Start button call `start`.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "a newGame() function",
+     "test": "/function\\s+newGame\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "a tick() function that schedules itself with setTimeout",
+     "test": "/function\\s+tick\\s*\\([\\s\\S]*setTimeout\\(\\s*tick/"
+    },
+    {
+     "pane": "js",
+     "label": "start() clears the old timer first",
+     "test": "/function\\s+start\\s*\\([\\s\\S]*clearTimeout\\(\\s*timer\\s*\\)/"
+    },
+    {
+     "pane": "js",
+     "label": "the Start button runs start",
+     "test": "/getElementById\\(\\s*['\"]start['\"]\\s*\\)\\.(onclick\\s*=\\s*start|addEventListener\\(\\s*['\"]click['\"]\\s*,\\s*start)/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why does `start()` call `clearTimeout(timer)` first?",
+     "options": [
+      "To reset the score",
+      "So pressing Start twice doesn't run two loops and make the snake move twice as fast",
+      "Because `setTimeout` only works once per page"
+     ],
+     "answer": 1,
+     "why": "Each loop schedules itself again. Stopping the old one before starting a new one keeps exactly one loop running."
+    },
+    {
+     "q": "Why use `setTimeout` instead of `setInterval` for the game loop?",
+     "options": [
+      "`setInterval` doesn't work in a canvas",
+      "Each tick can choose a new delay, which the speed-up feature needs",
+      "`setTimeout` is faster"
+     ],
+     "answer": 1,
+     "why": "With `setTimeout`, every tick decides when the next one runs, so the delay can shrink as the score goes up."
+    }
+   ],
+   "session": 1,
+   "minutes": 15,
+   "js": {
+    "state": "let snake, direction, timer;\n\n// Everything a new game needs, so Start always begins from the same place\nfunction newGame() {\n  const mid = Math.floor(SIZE / 2);\n  snake = [{ x: mid, y: mid }, { x: mid - 1, y: mid }, { x: mid - 2, y: mid }];\n  direction = 'right';\n}",
+    "loop": "// The game loop: move, draw, and wait a moment before the next move.\nfunction tick() {\n  step();\n  draw();\n  timer = setTimeout(tick, 150);\n}\n\nfunction start() {\n  clearTimeout(timer);    // never run two loops at once\n  newGame();\n  draw();\n  tick();\n}",
+    "go": "newGame();\ndraw();\ndocument.getElementById('start').onclick = start;"
+   }
+  },
+  {
+   "title": "Steering with the keyboard",
+   "body": "Time to take control. When a key is pressed, the browser fires a `keydown` event, and `event.key` tells you which key: `'ArrowUp'`, `'a'`, `' '` (space) and so on. A lookup object turns keys into directions:\n\n```js\nconst KEYS = { ArrowUp: 'up', w: 'up', /* ... */ };\n```\n\n### Two rules that make it feel right\n\n```svg Turns go into a queue, and a turn straight back is ignored\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 380 130\" width=\"380\" height=\"130\" font-family=\"system-ui, sans-serif\" font-size=\"12\"><text x=\"10\" y=\"20\" fill=\"#334155\" font-weight=\"600\">Keys pressed between two moves:</text><rect x=\"10\" y=\"30\" width=\"60\" height=\"28\" rx=\"6\" fill=\"#dbeafe\" stroke=\"#2563eb\"/><text x=\"40\" y=\"49\" text-anchor=\"middle\">↑ up</text><rect x=\"76\" y=\"30\" width=\"60\" height=\"28\" rx=\"6\" fill=\"#dbeafe\" stroke=\"#2563eb\"/><text x=\"106\" y=\"49\" text-anchor=\"middle\">← left</text><text x=\"150\" y=\"49\" fill=\"#55607a\">queue = [up, left]</text><text x=\"10\" y=\"90\" fill=\"#334155\">move 1 uses <tspan font-weight=\"700\">up</tspan>, move 2 uses <tspan font-weight=\"700\">left</tspan>: no press is lost</text><text x=\"10\" y=\"118\" fill=\"#dc2626\">going right? pressing ← (the opposite) is ignored</text></svg>\n```\n\n1. **No reversing.** If you're going right and press left, the head would move into your own neck. So a turn to the *opposite* direction is ignored. An `OPPOSITE` object (`up` ↔ `down`, `left` ↔ `right`) makes this a one-line check.\n2. **A small queue of turns.** The snake only moves every 150 ms. If you press up and then left quickly, both presses happen before the next move. If we just set `direction` each time, the up would be lost. Instead we push turns into a `queue` (at most 2), and each `step()` takes the next one off the front with `queue.shift()`.\n\nThe \"no reversing\" check compares against the *last queued* direction, not the current one: `queue.at(-1) ?? direction`. (`at(-1)` is the last item in an array; `??` means \"if that's missing, use this instead\".)\n\n### What to write\n\n1. Add `OPPOSITE` under `DIRECTIONS`, and a `queue` variable that `newGame()` empties.\n2. At the start of `step()`, `if (queue.length) direction = queue.shift();`\n3. A `KEYS` object for the arrow keys and W/A/S/D, a `turn(name)` function with the two rules above, and a `keydown` listener that calls it.\n4. Call `e.preventDefault()` for game keys so the arrows don't scroll the page.\n\n> Tip: keys go to whatever has focus. **Click on the result once** so the game gets your key presses instead of the editor.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "an OPPOSITE lookup",
+     "test": "/const\\s+OPPOSITE\\s*=/"
+    },
+    {
+     "pane": "js",
+     "label": "a queue of turns",
+     "test": "/queue\\s*=\\s*\\[\\]/"
+    },
+    {
+     "pane": "js",
+     "label": "step() takes the next queued turn",
+     "test": "/function\\s+step\\s*\\([\\s\\S]*queue\\.shift\\(\\)/"
+    },
+    {
+     "pane": "js",
+     "label": "a turn() function that refuses reversing",
+     "test": "/function\\s+turn\\s*\\([\\s\\S]*OPPOSITE\\[/"
+    },
+    {
+     "pane": "js",
+     "label": "a keydown listener",
+     "test": "/addEventListener\\(\\s*['\"]keydown['\"]/"
+    },
+    {
+     "pane": "js",
+     "label": "arrow keys don't scroll the page",
+     "test": "/preventDefault\\(\\)/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "You're moving right and press left. What happens?",
+     "options": [
+      "The snake turns around",
+      "Nothing: a turn to the opposite direction is ignored",
+      "The game ends"
+     ],
+     "answer": 1,
+     "why": "Turning straight back would move the head into its own neck, so the opposite direction is ignored."
+    },
+    {
+     "q": "Why do turns go into a queue instead of changing `direction` right away?",
+     "options": [
+      "Queues are faster than variables",
+      "Two quick presses between moves both count instead of the first one being lost",
+      "So the snake can turn twice in one move"
+     ],
+     "answer": 1,
+     "why": "The snake only moves every 150 ms. A queue keeps both presses, and each move uses one of them."
+    }
+   ],
+   "session": 1,
+   "minutes": 20,
+   "js": {
+    "directions": "const DIRECTIONS = {\n  up: { x: 0, y: -1 },\n  down: { x: 0, y: 1 },\n  left: { x: -1, y: 0 },\n  right: { x: 1, y: 0 },\n};\nconst OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left' };",
+    "state": "let snake, direction, queue, timer;\n\n// Everything a new game needs, so Start always begins from the same place\nfunction newGame() {\n  const mid = Math.floor(SIZE / 2);\n  snake = [{ x: mid, y: mid }, { x: mid - 1, y: mid }, { x: mid - 2, y: mid }];\n  direction = 'right';\n  queue = [];             // turns pressed since the last move\n}",
+    "rules": "// Move the snake one cell: add a new head in front, take the last cell off the tail.\nfunction step() {\n  if (queue.length) direction = queue.shift();\n  const d = DIRECTIONS[direction];\n  const head = { x: snake[0].x + d.x, y: snake[0].y + d.y };\n  snake.unshift(head);   // add to the front\n  snake.pop();           // remove from the back\n}",
+    "controls": "// Arrow keys and WASD. A turn is queued, so two quick presses between moves both count.\nconst KEYS = {\n  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',\n  w: 'up', s: 'down', a: 'left', d: 'right',\n};\n\nfunction turn(name) {\n  const last = queue.at(-1) ?? direction;    // where we'll be facing after the turns already queued\n  if (name === last || name === OPPOSITE[last] || queue.length >= 2) return;   // no reversing into yourself\n  queue.push(name);\n}\n\ndocument.addEventListener('keydown', (e) => {\n  const name = KEYS[e.key] ?? KEYS[e.key.toLowerCase()];\n  if (!name) return;\n  e.preventDefault();     // stop the arrow keys from scrolling the page\n  turn(name);\n});"
+   }
+  },
+  {
+   "title": "Food, growing and the score",
+   "body": "A snake needs something to chase. Food goes on a **random empty cell**, and that's harder than it sounds: if you just pick a random `x` and `y`, it might land on the snake. The reliable way is to list every free cell and pick one of those.\n\nTo check \"is this cell part of the snake?\" quickly, we put the snake's cells in a `Set` of strings like `\"10,10\"`. Looking something up in a Set is instant, while searching an array means checking every item.\n\n```js\nconst taken = new Set(snake.map((c) => `${c.x},${c.y}`));\ntaken.has('10,10');   // true or false\n```\n\n### Growing is just *not* removing the tail\n\nRemember that moving is \"add a head, remove the tail\"? When the snake eats, we add the head but **skip** removing the tail. The snake ends up one cell longer. That's the whole growing feature.\n\n### What to write\n\n1. Add `food` and `score` to the game state. `newGame()` sets `score = 0`, places the first food, and shows the score.\n2. A `placeFood()` function: build the `taken` Set, loop over every cell with two nested `for` loops, collect the free ones, and return a random one with `free[Math.floor(Math.random() * free.length)]`.\n3. A `showScore()` function that writes the score into `#score`.\n4. In `step()`, check whether the new head is on the food. If so, add 1 to the score and place new food; if not, `pop()` the tail as before.\n5. In `draw()`, draw the food as a red circle: `ctx.arc(centerX, centerY, radius, 0, Math.PI * 2)`, then `fill()`.\n\n> Tip: `Math.random()` gives a number from 0 up to (but not including) 1. Multiplying by the length and rounding down with `Math.floor` gives a valid index every time.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "a placeFood() function",
+     "test": "/function\\s+placeFood\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "it skips cells the snake is on (using a Set)",
+     "test": "/new\\s+Set\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "it picks a random free cell",
+     "test": "/Math\\.floor\\(\\s*Math\\.random\\(\\)\\s*\\*\\s*\\w+\\.length\\s*\\)/"
+    },
+    {
+     "pane": "js",
+     "label": "step() grows the snake when it eats",
+     "test": "/function\\s+step\\s*\\([\\s\\S]*food[\\s\\S]*score\\s*(\\+=\\s*1|\\+\\+)/"
+    },
+    {
+     "pane": "js",
+     "label": "the food is drawn as a circle",
+     "test": "/ctx\\.arc\\(/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "How does the snake grow by one cell when it eats?",
+     "options": [
+      "It adds two heads",
+      "It adds a head but skips removing the tail",
+      "It copies the last segment"
+     ],
+     "answer": 1,
+     "why": "Moving is add-a-head, remove-the-tail. Growing is the same move without removing the tail."
+    },
+    {
+     "q": "Why does `placeFood()` build a list of free cells instead of picking random x and y?",
+     "options": [
+      "Random numbers are slow",
+      "A random cell might land on the snake; picking from free cells always gives an empty one",
+      "So food always appears near the head"
+     ],
+     "answer": 1,
+     "why": "Listing the empty cells and picking one of them can never put food on the snake, and it also tells you when the board is full."
+    }
+   ],
+   "session": 1,
+   "minutes": 20,
+   "js": {
+    "state": "let snake, direction, queue, food, score, timer;\n\n// Everything a new game needs, so Start always begins from the same place\nfunction newGame() {\n  const mid = Math.floor(SIZE / 2);\n  snake = [{ x: mid, y: mid }, { x: mid - 1, y: mid }, { x: mid - 2, y: mid }];\n  direction = 'right';\n  queue = [];             // turns pressed since the last move\n  score = 0;\n  food = placeFood();\n  showScore();\n}",
+    "food": "// Food goes on a random empty cell. List every free cell, then pick one.\nfunction placeFood() {\n  const taken = new Set(snake.map((c) => `${c.x},${c.y}`));\n  const free = [];\n  for (let y = 0; y < SIZE; y++) {\n    for (let x = 0; x < SIZE; x++) {\n      if (!taken.has(`${x},${y}`)) free.push({ x, y });\n    }\n  }\n  return free[Math.floor(Math.random() * free.length)] ?? null;   // null when the board is full\n}\n\nfunction showScore() {\n  document.getElementById('score').textContent = score;\n}",
+    "rules": "// Move the snake one cell. Eating food makes it one cell longer.\nfunction step() {\n  if (queue.length) direction = queue.shift();\n  const d = DIRECTIONS[direction];\n  const head = { x: snake[0].x + d.x, y: snake[0].y + d.y };\n  const eating = food && head.x === food.x && head.y === food.y;\n\n  snake.unshift(head);\n  if (eating) {\n    score += 1;           // grow: keep the tail this time\n    showScore();\n    food = placeFood();\n  } else {\n    snake.pop();\n  }\n}",
+    "draw": "function draw() {\n  // 1. Clear the board\n  ctx.fillStyle = '#182030';\n  ctx.fillRect(0, 0, canvas.width, canvas.height);\n\n  // 2. Faint grid lines so you can see the cells\n  ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';\n  for (let i = 1; i < SIZE; i++) {\n    ctx.beginPath();\n    ctx.moveTo(i * CELL, 0);\n    ctx.lineTo(i * CELL, canvas.height);\n    ctx.moveTo(0, i * CELL);\n    ctx.lineTo(canvas.width, i * CELL);\n    ctx.stroke();\n  }\n\n  // 3. The food: a red circle in the middle of its cell\n  if (food) {\n    ctx.fillStyle = '#f87171';\n    ctx.beginPath();\n    ctx.arc(food.x * CELL + CELL / 2, food.y * CELL + CELL / 2, CELL / 2 - 3, 0, Math.PI * 2);\n    ctx.fill();\n  }\n\n  // 4. The snake: one rounded square per cell, the head a little brighter\n  snake.forEach((cell, i) => {\n    ctx.fillStyle = i === 0 ? '#86efac' : '#4ade80';\n    ctx.beginPath();\n    ctx.roundRect(cell.x * CELL + 1, cell.y * CELL + 1, CELL - 2, CELL - 2, 5);\n    ctx.fill();\n  });\n}"
+   }
+  },
+  {
+   "title": "Crashing (and winning)",
+   "body": "A game needs a way to lose. The snake crashes when its new head would be:\n\n- **outside the board**: `x` or `y` is below 0, or `SIZE` or more\n- **on its own body**: any cell of the snake has the same `x` and `y`\n\n### The tricky part: the tail\n\nImagine the snake chasing its own tail in a tight square. On this move the head steps into the cell where the tail *is right now*, but the tail is about to move out of the way. That shouldn't count as a crash. So we check against the body **without its last cell**, `snake.slice(0, -1)`, unless the snake is eating (then the tail stays put, so it does count).\n\nThis is exactly the kind of edge case that's easy to get wrong and hard to notice by playing, which is why my real project has a test for it.\n\n### Telling the loop what happened\n\n`step()` now **returns** what happened: `'move'`, `'eat'`, `'crash'` or `'win'` (the snake filled the whole board, so there's nowhere left for food). `tick()` reads that and either keeps going or stops. Having one function decide and another react keeps both simple.\n\n### What to write\n\n1. An `over` flag in the game state.\n2. In `step()`, before moving, work out `hitWall` and `hitSelf`. If either is true, set `over = true` and `return 'crash'`.\n3. Return `'move'`, `'eat'`, or `'win'` when `placeFood()` returns `null`.\n4. In `tick()`, stop when the result is `'crash'` or `'win'` and show a message with a small `message(text)` function. Clear the message in `start()`.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "an over flag",
+     "test": "/\\bover\\s*=\\s*(false|true)/"
+    },
+    {
+     "pane": "js",
+     "label": "crashing into the walls",
+     "test": "/head\\.x\\s*<\\s*0[\\s\\S]*SIZE/",
+     "hint": "Check head.x < 0, head.y < 0, head.x >= SIZE and head.y >= SIZE"
+    },
+    {
+     "pane": "js",
+     "label": "crashing into yourself (ignoring the tail)",
+     "test": "/slice\\(\\s*0\\s*,\\s*-1\\s*\\)/",
+     "hint": "Compare against snake.slice(0, -1), the body without the tail"
+    },
+    {
+     "pane": "js",
+     "label": "step() returns 'crash'",
+     "test": "/return\\s+['\"]crash['\"]/"
+    },
+    {
+     "pane": "js",
+     "label": "tick() stops on a crash",
+     "test": "/function\\s+tick\\s*\\([\\s\\S]*crash/"
+    },
+    {
+     "pane": "js",
+     "label": "a message() function",
+     "test": "/function\\s+message\\s*\\(/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "The head moves into the cell the tail is in right now. Is that a crash?",
+     "options": [
+      "Yes, always",
+      "No, because the tail moves out of the way on the same move (unless the snake is eating)",
+      "Only in no-walls mode"
+     ],
+     "answer": 1,
+     "why": "The tail leaves that cell this move, so the body is checked without its last cell. When eating, the tail stays, so it does count."
+    },
+    {
+     "q": "Why does `step()` return `'move'`, `'eat'`, `'crash'` or `'win'`?",
+     "options": [
+      "To print it in the console",
+      "So `step()` decides what happened and `tick()` just reacts to it",
+      "Because functions must return something"
+     ],
+     "answer": 1,
+     "why": "One function decides and another reacts, which keeps both simple and easy to test."
+    }
+   ],
+   "session": 1,
+   "minutes": 20,
+   "js": {
+    "state": "let snake, direction, queue, food, score, over, timer;\n\n// Everything a new game needs, so Start always begins from the same place\nfunction newGame() {\n  const mid = Math.floor(SIZE / 2);\n  snake = [{ x: mid, y: mid }, { x: mid - 1, y: mid }, { x: mid - 2, y: mid }];\n  direction = 'right';\n  queue = [];             // turns pressed since the last move\n  score = 0;\n  over = false;\n  food = placeFood();\n  showScore();\n}",
+    "rules": "// Move the snake one cell. Returns what happened: 'move', 'eat', 'crash' or 'win'.\nfunction step() {\n  if (queue.length) direction = queue.shift();\n  const d = DIRECTIONS[direction];\n  const head = { x: snake[0].x + d.x, y: snake[0].y + d.y };\n  const eating = food && head.x === food.x && head.y === food.y;\n\n  // The tail moves out of the way this turn (unless we're growing), so it doesn't count as a hit\n  const body = eating ? snake : snake.slice(0, -1);\n  const hitWall = head.x < 0 || head.y < 0 || head.x >= SIZE || head.y >= SIZE;\n  const hitSelf = body.some((c) => c.x === head.x && c.y === head.y);\n  if (hitWall || hitSelf) {\n    over = true;\n    return 'crash';\n  }\n\n  snake.unshift(head);\n  if (!eating) {\n    snake.pop();\n    return 'move';\n  }\n  score += 1;             // grow: we kept the tail this time\n  showScore();\n  food = placeFood();\n  if (!food) {            // no empty cell left: you filled the board\n    over = true;\n    return 'win';\n  }\n  return 'eat';\n}",
+    "loop": "// The game loop: move, draw, and wait a moment before the next move.\nfunction tick() {\n  const result = step();\n  draw();\n  if (result === 'crash') return message(`Game over! You scored ${score}. Press Start to play again.`);\n  if (result === 'win') return message('You filled the whole board. Amazing!');\n  timer = setTimeout(tick, 150);\n}\n\nfunction start() {\n  clearTimeout(timer);    // never run two loops at once\n  newGame();\n  message('');\n  draw();\n  tick();\n}\n\nfunction message(text) {\n  document.getElementById('message').textContent = text;\n}"
    }
   }
  ],
