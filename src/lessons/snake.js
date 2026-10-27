@@ -25,6 +25,11 @@ export default {
    "title": "Make it a game",
    "from": 4,
    "to": 7
+  },
+  {
+   "title": "Polish, speed and phones",
+   "from": 8,
+   "to": 11
   }
  ],
  "start": {
@@ -535,6 +540,241 @@ export default {
     "state": "let snake, direction, queue, food, score, over, timer;\n\n// Everything a new game needs, so Start always begins from the same place\nfunction newGame() {\n  const mid = Math.floor(SIZE / 2);\n  snake = [{ x: mid, y: mid }, { x: mid - 1, y: mid }, { x: mid - 2, y: mid }];\n  direction = 'right';\n  queue = [];             // turns pressed since the last move\n  score = 0;\n  over = false;\n  food = placeFood();\n  showScore();\n}",
     "rules": "// Move the snake one cell. Returns what happened: 'move', 'eat', 'crash' or 'win'.\nfunction step() {\n  if (queue.length) direction = queue.shift();\n  const d = DIRECTIONS[direction];\n  const head = { x: snake[0].x + d.x, y: snake[0].y + d.y };\n  const eating = food && head.x === food.x && head.y === food.y;\n\n  // The tail moves out of the way this turn (unless we're growing), so it doesn't count as a hit\n  const body = eating ? snake : snake.slice(0, -1);\n  const hitWall = head.x < 0 || head.y < 0 || head.x >= SIZE || head.y >= SIZE;\n  const hitSelf = body.some((c) => c.x === head.x && c.y === head.y);\n  if (hitWall || hitSelf) {\n    over = true;\n    return 'crash';\n  }\n\n  snake.unshift(head);\n  if (!eating) {\n    snake.pop();\n    return 'move';\n  }\n  score += 1;             // grow: we kept the tail this time\n  showScore();\n  food = placeFood();\n  if (!food) {            // no empty cell left: you filled the board\n    over = true;\n    return 'win';\n  }\n  return 'eat';\n}",
     "loop": "// The game loop: move, draw, and wait a moment before the next move.\nfunction tick() {\n  const result = step();\n  draw();\n  if (result === 'crash') return message(`Game over! You scored ${score}. Press Start to play again.`);\n  if (result === 'win') return message('You filled the whole board. Amazing!');\n  timer = setTimeout(tick, 150);\n}\n\nfunction start() {\n  clearTimeout(timer);    // never run two loops at once\n  newGame();\n  message('');\n  draw();\n  tick();\n}\n\nfunction message(text) {\n  document.getElementById('message').textContent = text;\n}"
+   }
+  },
+  {
+   "title": "Best score, and the space bar",
+   "body": "Players love beating their own record, so let's remember the best score. The browser's `localStorage` keeps small bits of text for a website, even after the page is closed:\n\n```js\nlocalStorage.setItem('snake-best', 12);\nlocalStorage.getItem('snake-best');   // \"12\" (always a string)\n```\n\n### Storage can fail, so plan for it\n\n`localStorage` throws an error in some situations: private browsing on some browsers, a full disk, or a page that isn't allowed to use storage. **This editor's result frame is one of those**: it's sandboxed for safety, so `localStorage` throws here. If we didn't handle that, the whole game would break.\n\nWrapping storage in `try { ... } catch {}` means: try it, and if it fails, carry on without it. Here the best score simply won't survive a refresh, but the game still works. In my real Snake game it saves normally.\n\n### Space to play again\n\nMaking players reach for the mouse after every game is annoying. If the space bar is pressed when no game is running (`over` is true, or the game hasn't started), start one.\n\n### What to write\n\n1. Add `Best <strong id=\"best\">0</strong>` next to the score in the HTML.\n2. A `best` variable that reads `localStorage` inside `try/catch` (use `Number(...) || 0` to turn the text into a number, and get 0 if it's missing).\n3. A `gameOver()` function: if `score > best`, update `best`, save it (inside `try/catch`), update the display, and show the message. Call it from `tick()` on a crash.\n4. `showScore()` also writes `best` into `#best`.\n5. In the `keydown` listener, start a game on space when `over || !timer`.",
+   "checks": [
+    {
+     "pane": "html",
+     "label": "a best score with id \"best\"",
+     "test": "/id=[\"']best[\"']/"
+    },
+    {
+     "pane": "js",
+     "label": "reads the best score from localStorage",
+     "test": "/localStorage\\.getItem\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "storage is wrapped in try/catch",
+     "test": "/try\\s*\\{[^}]*localStorage[^}]*\\}\\s*catch/"
+    },
+    {
+     "pane": "js",
+     "label": "a gameOver() function that saves a new best",
+     "test": "/function\\s+gameOver\\s*\\([\\s\\S]*localStorage\\.setItem\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "the space bar starts a game",
+     "test": "/e\\.key\\s*===\\s*['\"] ['\"]/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why is every use of `localStorage` wrapped in `try/catch`?",
+     "options": [
+      "It makes saving faster",
+      "Storage can throw (private windows, sandboxed pages like this editor), and the game should keep working",
+      "`localStorage` only works inside try blocks"
+     ],
+     "answer": 1,
+     "why": "If storage fails, the catch lets the game carry on; the best score just won't be saved."
+    },
+    {
+     "q": "What does `Number(localStorage.getItem('snake-best')) || 0` give when nothing is saved yet?",
+     "options": [
+      "`null`",
+      "`NaN`",
+      "`0`"
+     ],
+     "answer": 2,
+     "why": "`getItem` returns `null`, `Number(null)` is `0`, and `|| 0` also covers anything that isn't a number."
+    }
+   ],
+   "session": 2,
+   "minutes": 15,
+   "html": {
+    "page": "<header class=\"bar\">\n  <h1>Snake</h1>\n  <p>Score <strong id=\"score\">0</strong> · Best <strong id=\"best\">0</strong></p>\n</header>\n\n<main>\n  <canvas id=\"board\" width=\"400\" height=\"400\"></canvas>\n  <p id=\"message\" class=\"message\">Press Start or the space bar</p>\n  <div class=\"controls\">\n    <button id=\"start\">Start</button>\n  </div>\n</main>"
+   },
+   "js": {
+    "state": "let snake, direction, queue, food, score, over, timer;\n\n// The best score is kept in the browser. Storage can be blocked (private windows, and this editor's\n// sandboxed preview), so every use is wrapped in try/catch and the game works either way.\nlet best = 0;\ntry { best = Number(localStorage.getItem('snake-best')) || 0; } catch {}\n\n// Everything a new game needs, so Start always begins from the same place\nfunction newGame() {\n  const mid = Math.floor(SIZE / 2);\n  snake = [{ x: mid, y: mid }, { x: mid - 1, y: mid }, { x: mid - 2, y: mid }];\n  direction = 'right';\n  queue = [];             // turns pressed since the last move\n  score = 0;\n  over = false;\n  food = placeFood();\n  showScore();\n}",
+    "food": "// Food goes on a random empty cell. List every free cell, then pick one.\nfunction placeFood() {\n  const taken = new Set(snake.map((c) => `${c.x},${c.y}`));\n  const free = [];\n  for (let y = 0; y < SIZE; y++) {\n    for (let x = 0; x < SIZE; x++) {\n      if (!taken.has(`${x},${y}`)) free.push({ x, y });\n    }\n  }\n  return free[Math.floor(Math.random() * free.length)] ?? null;   // null when the board is full\n}\n\nfunction showScore() {\n  document.getElementById('score').textContent = score;\n  document.getElementById('best').textContent = best;\n}",
+    "loop": "// The game loop: move, draw, and wait a moment before the next move.\nfunction tick() {\n  const result = step();\n  draw();\n  if (result === 'crash') return gameOver();\n  if (result === 'win') return message('You filled the whole board. Amazing!');\n  timer = setTimeout(tick, 150);\n}\n\nfunction start() {\n  clearTimeout(timer);    // never run two loops at once\n  newGame();\n  message('');\n  draw();\n  tick();\n}\n\nfunction gameOver() {\n  if (score > best) {\n    best = score;\n    try { localStorage.setItem('snake-best', best); } catch {}\n  }\n  showScore();\n  message(`Game over! You scored ${score}. Press Start or space to play again.`);\n}\n\nfunction message(text) {\n  document.getElementById('message').textContent = text;\n}",
+    "controls": "// Arrow keys and WASD. A turn is queued, so two quick presses between moves both count.\nconst KEYS = {\n  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',\n  w: 'up', s: 'down', a: 'left', d: 'right',\n};\n\nfunction turn(name) {\n  const last = queue.at(-1) ?? direction;    // where we'll be facing after the turns already queued\n  if (name === last || name === OPPOSITE[last] || queue.length >= 2) return;   // no reversing into yourself\n  queue.push(name);\n}\n\ndocument.addEventListener('keydown', (e) => {\n  if (e.key === ' ' && (over || !timer)) {   // space starts a game when none is running\n    e.preventDefault();\n    return start();\n  }\n  const name = KEYS[e.key] ?? KEYS[e.key.toLowerCase()];\n  if (!name) return;\n  e.preventDefault();     // stop the arrow keys from scrolling the page\n  turn(name);\n});"
+   }
+  },
+  {
+   "title": "Speed levels that get faster as you score",
+   "body": "A constant 150 ms gets boring once you're good. Two improvements:\n\n1. **Levels.** A Speed menu with Slow, Normal and Fast, each a different delay between moves.\n2. **Speeding up.** Every 5 points, the delay drops by 5 ms, so a long game gets tense. A minimum (45 ms) stops it from becoming impossible.\n\nPutting the numbers in an object (`SPEEDS`) instead of scattering them through the code means you can tune the game in one place. The math lives in a small function:\n\n```js\nMath.max(45, base - Math.floor(score / 5) * 5)\n```\n\nRead it from the inside out: `Math.floor(score / 5)` is how many groups of 5 points you have (12 points → 2), times 5 ms each, taken off the base speed, but never below 45.\n\n### What to write\n\n1. A `<select id=\"speed\">` in the controls with three `<option>`s: `slow`, `normal` (selected) and `fast`.\n2. A `SPEEDS` object and a `tickMs()` function that reads the menu and applies the formula.\n3. Use `setTimeout(tick, tickMs())` in `tick()`, so every move uses the current speed.\n\n> Tip: try changing Speed in the middle of a game. Because `tickMs()` reads the menu every tick, it changes instantly.",
+   "checks": [
+    {
+     "pane": "html",
+     "label": "a speed menu with id \"speed\"",
+     "test": "/<select[^>]*id=[\"']speed[\"']/"
+    },
+    {
+     "pane": "html",
+     "label": "slow, normal and fast options",
+     "test": "/value=[\"']slow[\"'][\\s\\S]*value=[\"']normal[\"'][\\s\\S]*value=[\"']fast[\"']/"
+    },
+    {
+     "pane": "js",
+     "label": "a SPEEDS object",
+     "test": "/const\\s+SPEEDS\\s*=/"
+    },
+    {
+     "pane": "js",
+     "label": "a tickMs() function with a minimum speed",
+     "test": "/function\\s+tickMs\\s*\\([\\s\\S]*Math\\.max\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "tick() uses tickMs()",
+     "test": "/setTimeout\\(\\s*tick\\s*,\\s*tickMs\\(\\)\\s*\\)/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "With a base delay of 150 ms and a score of 12, what is `Math.max(45, 150 - Math.floor(12 / 5) * 5)`?",
+     "options": [
+      "90",
+      "140",
+      "45"
+     ],
+     "answer": 1,
+     "why": "`Math.floor(12 / 5)` is 2 groups of 5 points, `2 * 5` is 10 ms, and `150 - 10` is 140, which is above the 45 ms minimum."
+    },
+    {
+     "q": "Why keep the speeds in one `SPEEDS` object?",
+     "options": [
+      "Objects run faster than numbers",
+      "All the numbers you'd tune live in one place",
+      "The `<select>` needs an object"
+     ],
+     "answer": 1,
+     "why": "Tuning the game means changing one object instead of hunting through the code."
+    }
+   ],
+   "session": 2,
+   "minutes": 12,
+   "html": {
+    "page": "<header class=\"bar\">\n  <h1>Snake</h1>\n  <p>Score <strong id=\"score\">0</strong> · Best <strong id=\"best\">0</strong></p>\n</header>\n\n<main>\n  <canvas id=\"board\" width=\"400\" height=\"400\"></canvas>\n  <p id=\"message\" class=\"message\">Press Start or the space bar</p>\n  <div class=\"controls\">\n    <button id=\"start\">Start</button>\n    <label>Speed\n      <select id=\"speed\">\n        <option value=\"slow\">Slow</option>\n        <option value=\"normal\" selected>Normal</option>\n        <option value=\"fast\">Fast</option>\n      </select>\n    </label>\n  </div>\n</main>"
+   },
+   "js": {
+    "loop": "// Milliseconds between moves for each level\nconst SPEEDS = { slow: 170, normal: 120, fast: 80 };\n\n// The snake gets 5 ms faster every 5 points, but never faster than 45 ms\nfunction tickMs() {\n  const base = SPEEDS[document.getElementById('speed').value] ?? SPEEDS.normal;\n  return Math.max(45, base - Math.floor(score / 5) * 5);\n}\n\n// The game loop: move, draw, and wait a moment before the next move.\nfunction tick() {\n  const result = step();\n  draw();\n  if (result === 'crash') return gameOver();\n  if (result === 'win') return message('You filled the whole board. Amazing!');\n  timer = setTimeout(tick, tickMs());\n}\n\nfunction start() {\n  clearTimeout(timer);    // never run two loops at once\n  newGame();\n  message('');\n  draw();\n  tick();\n}\n\nfunction gameOver() {\n  if (score > best) {\n    best = score;\n    try { localStorage.setItem('snake-best', best); } catch {}\n  }\n  showScore();\n  message(`Game over! You scored ${score}. Press Start or space to play again.`);\n}\n\nfunction message(text) {\n  document.getElementById('message').textContent = text;\n}"
+   }
+  },
+  {
+   "title": "Swipe controls for phones",
+   "body": "Phones don't have arrow keys, so let's read swipes. A swipe is just two touch events: `touchstart` (finger down) and `touchend` (finger up). Compare where the finger started and where it ended:\n\n- `dx` = how far it moved sideways, `dy` = how far up or down\n- whichever is bigger tells you the direction: a mostly sideways swipe is left or right\n- the sign tells you which way: positive `dx` is right, positive `dy` is down\n\nA tiny movement is a tap, not a swipe, so ignore anything shorter than about 20 pixels.\n\n### Reusing what we built\n\nHere's the payoff for writing `turn(name)` as its own function in step 6: swipes call the exact same `turn()`, so they automatically get the no-reversing rule and the turn queue. No duplicated logic.\n\n> Tip: `{ passive: true }` on `touchstart` tells the browser we won't block scrolling from that listener, which keeps touch handling smooth. The `touch-action: none` CSS from step 1 is what stops the page from scrolling during a swipe.\n\n### What to write\n\n1. A `touchStart` variable to remember where the finger went down.\n2. A `touchstart` listener on the canvas that saves `e.touches[0].clientX` and `clientY`.\n3. A `touchend` listener that reads `e.changedTouches[0]`, works out `dx` and `dy`, ignores short ones, and calls `turn()`.\n\nYou can test this with your browser's developer tools: most have a \"device toolbar\" that simulates a phone and turns mouse drags into touches.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "a touchstart listener on the canvas",
+     "test": "/canvas\\.addEventListener\\(\\s*['\"]touchstart['\"]/"
+    },
+    {
+     "pane": "js",
+     "label": "a touchend listener on the canvas",
+     "test": "/canvas\\.addEventListener\\(\\s*['\"]touchend['\"]/"
+    },
+    {
+     "pane": "js",
+     "label": "compares sideways and up/down movement",
+     "test": "/Math\\.abs\\(\\s*dx\\s*\\)\\s*>\\s*Math\\.abs\\(\\s*dy\\s*\\)/"
+    },
+    {
+     "pane": "js",
+     "label": "swipes use the same turn() function",
+     "test": "/touchend[\\s\\S]*turn\\(/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "A finger moves 80 pixels right and 15 pixels up. Which way does the snake turn?",
+     "options": [
+      "Up",
+      "Right",
+      "Nothing, it's a tap"
+     ],
+     "answer": 1,
+     "why": "The sideways movement (`dx` = 80) is bigger than the vertical one (`dy` = -15), and it's positive, so it's a right swipe."
+    },
+    {
+     "q": "Why do swipes call the same `turn()` function as the keys?",
+     "options": [
+      "Swipes can't change variables directly",
+      "They get the no-reversing rule and the turn queue for free, with no duplicated code",
+      "`turn()` is the only function that can read touches"
+     ],
+     "answer": 1,
+     "why": "Writing `turn(name)` once means every input (keys, swipes) follows the same rules."
+    }
+   ],
+   "session": 2,
+   "minutes": 15,
+   "js": {
+    "controls": "// Arrow keys and WASD. A turn is queued, so two quick presses between moves both count.\nconst KEYS = {\n  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',\n  w: 'up', s: 'down', a: 'left', d: 'right',\n};\n\nfunction turn(name) {\n  const last = queue.at(-1) ?? direction;    // where we'll be facing after the turns already queued\n  if (name === last || name === OPPOSITE[last] || queue.length >= 2) return;   // no reversing into yourself\n  queue.push(name);\n}\n\ndocument.addEventListener('keydown', (e) => {\n  if (e.key === ' ' && (over || !timer)) {   // space starts a game when none is running\n    e.preventDefault();\n    return start();\n  }\n  const name = KEYS[e.key] ?? KEYS[e.key.toLowerCase()];\n  if (!name) return;\n  e.preventDefault();     // stop the arrow keys from scrolling the page\n  turn(name);\n});\n\n// Swipes on a phone: compare where the finger went down with where it came up.\nlet touchStart = null;\n\ncanvas.addEventListener('touchstart', (e) => {\n  const t = e.touches[0];\n  touchStart = { x: t.clientX, y: t.clientY };\n}, { passive: true });\n\ncanvas.addEventListener('touchend', (e) => {\n  if (!touchStart) return;\n  const t = e.changedTouches[0];\n  const dx = t.clientX - touchStart.x;\n  const dy = t.clientY - touchStart.y;\n  touchStart = null;\n  if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;   // a tap, not a swipe\n  if (Math.abs(dx) > Math.abs(dy)) turn(dx > 0 ? 'right' : 'left');\n  else turn(dy > 0 ? 'down' : 'up');\n});"
+   }
+  },
+  {
+   "title": "A no-walls mode where the board wraps around",
+   "body": "The last feature: a mode with no walls, where leaving one edge brings you back on the opposite side (like Pac-Man's tunnel).\n\n### The modulo trick\n\n```svg Wrapping around: (x + SIZE) % SIZE takes column -1 to column 19\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 420 100\" width=\"420\" height=\"100\" font-family=\"system-ui, sans-serif\" font-size=\"12\"><defs><marker id=\"w\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto\"><path d=\"M0 0L10 5L0 10z\" fill=\"#2563eb\"/></marker></defs><path d=\"M30 38 C 30 5, 185 5, 185 36\" fill=\"none\" stroke=\"#2563eb\" stroke-width=\"2\" marker-end=\"url(#w)\"/><rect x=\"20\" y=\"40\" width=\"28\" height=\"28\" rx=\"4\" fill=\"#22c55e\" stroke=\"#94a3b8\"/><text x=\"34\" y=\"88\" text-anchor=\"middle\" fill=\"#55607a\">0</text><rect x=\"50\" y=\"40\" width=\"28\" height=\"28\" rx=\"4\" fill=\"#eef2f8\" stroke=\"#94a3b8\"/><text x=\"64\" y=\"88\" text-anchor=\"middle\" fill=\"#55607a\">1</text><rect x=\"80\" y=\"40\" width=\"28\" height=\"28\" rx=\"4\" fill=\"#eef2f8\" stroke=\"#94a3b8\"/><text x=\"94\" y=\"88\" text-anchor=\"middle\" fill=\"#55607a\">2</text><rect x=\"110\" y=\"40\" width=\"28\" height=\"28\" rx=\"4\" fill=\"#eef2f8\" stroke=\"#94a3b8\"/><text x=\"124\" y=\"88\" text-anchor=\"middle\" fill=\"#55607a\">…</text><rect x=\"140\" y=\"40\" width=\"28\" height=\"28\" rx=\"4\" fill=\"#eef2f8\" stroke=\"#94a3b8\"/><text x=\"154\" y=\"88\" text-anchor=\"middle\" fill=\"#55607a\">18</text><rect x=\"170\" y=\"40\" width=\"28\" height=\"28\" rx=\"4\" fill=\"#eef2f8\" stroke=\"#94a3b8\"/><text x=\"184\" y=\"88\" text-anchor=\"middle\" fill=\"#55607a\">19</text><text x=\"215\" y=\"50\" fill=\"#334155\">going left from column 0:</text><text x=\"215\" y=\"68\" font-family=\"monospace\">(-1 + 20) % 20 = 19</text></svg>\n```\n\nThe `%` operator gives the remainder after dividing. On a 20-cell board:\n\n- going right from column 19 gives column 20, and `20 % 20` is `0`: back on the left edge\n- going left from column 0 gives column -1. In JavaScript `-1 % 20` is `-1` (not 19!), so we add `SIZE` first: `(-1 + 20) % 20` is `19`\n\nSo one formula handles both edges: `(x + SIZE) % SIZE`. Do the same for `y`.\n\n### What to write\n\n1. A checkbox in the controls: `<label><input type=\"checkbox\" id=\"walls\" checked> Walls</label>`.\n2. A `walls` variable that `newGame()` reads from the checkbox.\n3. In `step()`, when walls are off, wrap the new head with the modulo formula, and only count `hitWall` when walls are on.\n\nNotice how little changed: one new variable and two lines in `step()`. That's the benefit of having all the rules in one place.",
+   "checks": [
+    {
+     "pane": "html",
+     "label": "a walls checkbox with id \"walls\"",
+     "test": "/<input[^>]*type=[\"']checkbox[\"'][^>]*id=[\"']walls[\"']|<input[^>]*id=[\"']walls[\"'][^>]*type=[\"']checkbox[\"']/"
+    },
+    {
+     "pane": "js",
+     "label": "newGame() reads the checkbox",
+     "test": "/walls\\s*=\\s*document\\.getElementById\\(\\s*['\"]walls['\"]\\s*\\)\\.checked/"
+    },
+    {
+     "pane": "js",
+     "label": "wrapping with (x + SIZE) % SIZE",
+     "test": "/\\(\\s*head\\.x\\s*\\+\\s*SIZE\\s*\\)\\s*%\\s*SIZE/"
+    },
+    {
+     "pane": "js",
+     "label": "walls only count when they're on",
+     "test": "/hitWall\\s*=\\s*walls\\s*&&/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "On a 20-cell board in no-walls mode, the head goes left from column 0. What is `(-1 + 20) % 20`?",
+     "options": [
+      "-1",
+      "0",
+      "19"
+     ],
+     "answer": 2,
+     "why": "Adding `SIZE` first keeps the number positive, so -1 wraps to column 19 on the right edge."
+    },
+    {
+     "q": "Why add `SIZE` before taking the remainder?",
+     "options": [
+      "In JavaScript `-1 % 20` is `-1`, not 19",
+      "It makes the board bigger",
+      "Modulo only works on numbers over 20"
+     ],
+     "answer": 0,
+     "why": "JavaScript keeps the sign in `%`, so `(x + SIZE) % SIZE` handles both edges with one formula."
+    }
+   ],
+   "session": 2,
+   "minutes": 15,
+   "html": {
+    "page": "<header class=\"bar\">\n  <h1>Snake</h1>\n  <p>Score <strong id=\"score\">0</strong> · Best <strong id=\"best\">0</strong></p>\n</header>\n\n<main>\n  <canvas id=\"board\" width=\"400\" height=\"400\"></canvas>\n  <p id=\"message\" class=\"message\">Press Start or the space bar</p>\n  <div class=\"controls\">\n    <button id=\"start\">Start</button>\n    <label>Speed\n      <select id=\"speed\">\n        <option value=\"slow\">Slow</option>\n        <option value=\"normal\" selected>Normal</option>\n        <option value=\"fast\">Fast</option>\n      </select>\n    </label>\n    <label><input type=\"checkbox\" id=\"walls\" checked> Walls</label>\n  </div>\n</main>"
+   },
+   "js": {
+    "state": "let snake, direction, queue, food, score, over, walls, timer;\n\n// The best score is kept in the browser. Storage can be blocked (private windows, and this editor's\n// sandboxed preview), so every use is wrapped in try/catch and the game works either way.\nlet best = 0;\ntry { best = Number(localStorage.getItem('snake-best')) || 0; } catch {}\n\n// Everything a new game needs, so Start always begins from the same place\nfunction newGame() {\n  const mid = Math.floor(SIZE / 2);\n  snake = [{ x: mid, y: mid }, { x: mid - 1, y: mid }, { x: mid - 2, y: mid }];\n  direction = 'right';\n  queue = [];             // turns pressed since the last move\n  score = 0;\n  over = false;\n  walls = document.getElementById('walls').checked;\n  food = placeFood();\n  showScore();\n}",
+    "rules": "// Move the snake one cell. Returns what happened: 'move', 'eat', 'crash' or 'win'.\nfunction step() {\n  if (queue.length) direction = queue.shift();\n  const d = DIRECTIONS[direction];\n  let head = { x: snake[0].x + d.x, y: snake[0].y + d.y };\n  if (!walls) head = { x: (head.x + SIZE) % SIZE, y: (head.y + SIZE) % SIZE };   // wrap around the edges\n  const eating = food && head.x === food.x && head.y === food.y;\n\n  // The tail moves out of the way this turn (unless we're growing), so it doesn't count as a hit\n  const body = eating ? snake : snake.slice(0, -1);\n  const hitWall = walls && (head.x < 0 || head.y < 0 || head.x >= SIZE || head.y >= SIZE);\n  const hitSelf = body.some((c) => c.x === head.x && c.y === head.y);\n  if (hitWall || hitSelf) {\n    over = true;\n    return 'crash';\n  }\n\n  snake.unshift(head);\n  if (!eating) {\n    snake.pop();\n    return 'move';\n  }\n  score += 1;             // grow: we kept the tail this time\n  showScore();\n  food = placeFood();\n  if (!food) {            // no empty cell left: you filled the board\n    over = true;\n    return 'win';\n  }\n  return 'eat';\n}"
    }
   }
  ],
