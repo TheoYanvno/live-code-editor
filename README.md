@@ -21,6 +21,7 @@ Under the guides it's still a full editor: write HTML, CSS and JavaScript and se
 | Guide | Steps | What you learn |
 |---|---|---|
 | 🐍 [Snake](https://github.com/TheoYanvno/snake-game) | 13 in 4 sessions · about 3 h · 26 quiz questions | Canvas drawing, a game loop, keyboard and swipe controls, keeping rules separate from drawing |
+| 🔢 [Sudoku Solver](https://github.com/TheoYanvno/sudoku-solver) | 12 in 5 sessions · about 3 h · 22 quiz questions | Bitmasks, constraint propagation, recursion and backtracking, generating puzzles with one answer |
 
 A new guide is added for each of my projects, easiest first: Quote & Joke Generator, Task Calendar, Sudoku Solver, Sticky Notes, Bonfire Notes, Marvel Character Database, Chess Coach, SuperBook, Gotham Hospital System, Blueit and Cybersecurity Intro Academy. Each guide is written against the project as it is in its repo today.
 

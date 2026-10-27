@@ -1222,6 +1222,49 @@ document.getElementById('new').onclick = () => {
 };
 ```
 
+## Session: How the real project is built
+
+## Step: How the real project is organized
+time: 10
+kind: read
+
+You've now built the same solver that runs in my [Sudoku Solver](https://theoyanvno.github.io/sudoku-solver/). The real project splits it into files by job:
+
+| File | What it does |
+|---|---|
+| `src/sudoku.js` | parsing, validation, propagation, backtracking, counting solutions: no page code at all |
+| `src/generator.js` | random grids, carving, grading, the seeded random numbers |
+| `src/app.js` | the grid, typing and arrow keys, the buttons, the replay and sharing puzzles in the URL |
+| `test/*.test.js` | 18 tests run with `node --test` |
+
+The biggest difference from this guide: the real solver keeps the board in a small `Board` class with methods (`place`, `propagate`, `deadEnd`, `bestCell`) instead of separate functions:
+
+```js
+class Board {
+  place(i, d) {
+    this.values[i] = d;
+    this.cands[i] = 0;
+    for (const p of PEERS[i]) this.cands[p] &= ~(1 << d);
+  }
+}
+```
+
+It's the same logic with `this.` in front, which keeps all the board operations in one place.
+
+Because `sudoku.js` never touches the page, it can be tested in Node without a browser. Here's one of the real tests:
+
+```js
+test('solves a hard puzzle that needs guessing and backtracking', () => {
+  const { solution, stats } = solve(parse(HARD));
+  assert.ok(isSolved(solution));
+  assert.ok(stats.guesses > 0);
+  // the answer keeps every original clue
+  parse(HARD).forEach((v, i) => v && assert.equal(solution[i], v));
+});
+```
+
+The real app also has a few things this guide skipped: a `validate()` function with friendly messages (like "Only 16 clues: a Sudoku needs at least 17 to have a single answer"), **Check my answers** that underlines wrong entries without revealing the answers, arrow-key movement between cells, and puzzles shared in the URL (`…/sudoku-solver/#53..7....`).
+
 ## Finish
 
 ### What you learned
