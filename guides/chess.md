@@ -1939,6 +1939,51 @@ $('new').onclick = () => {
 };
 ```
 
+## Session: How the real project is built
+
+## Step: How the real project is organized and tested
+time: 10
+kind: read
+
+You've now built the same engine and coach that run in my [Chess Coach](https://theoyanvno.github.io/chess-coach/). The real project splits them into ES modules:
+
+| File | What it does |
+|---|---|
+| `src/engine.js` | board, FEN, legal moves, check, game results, algebraic notation and `perft` |
+| `src/ai.js` | evaluation, alpha-beta with quiescence and move ordering, the four levels |
+| `src/coach.js` | grades, explanations, opening advice, hints and the game report |
+| `src/worker.js` | runs the engine in a **Web Worker** |
+| `src/ui.js` | the board, clicks, the coach feed, take-backs and the report dialog |
+
+**The Web Worker.** In this guide the search runs on the page itself, so on Hard the page freezes for a moment. The real app sends the position to a worker and gets the answer back as a message, so the board never freezes:
+
+```js
+self.onmessage = ({ data }) => {
+  const { id, type, fen } = data;
+  const s = fromFen(fen);
+  let result;
+  if (type === 'move') result = chooseMove(s, data.level);
+  if (type === 'review') result = reviewMove(s, data.move, { depth: 2, moveNumber: data.moveNumber });
+  if (type === 'hint') result = hint(s);
+  self.postMessage({ id, result });
+};
+```
+
+**The Professional level** uses **iterative deepening**: search depth 1, then 2, then 3… until a 2.5-second budget runs out, then play the best move from the deepest search that finished. Each finished depth puts its best move first for the next one, which makes alpha-beta prune far more.
+
+**Testing with perft.** How do you know the move generator is right? `perft` counts every position reachable in N moves and compares with numbers published by the chess programming community. One wrong rule (a missing en passant, castling through check) changes the count:
+
+```js
+test('"Kiwipete" position perft (castling, en passant, pins)', () => {
+  const s = fromFen('r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1');
+  assert.strictEqual(perft(s, 1), 48);
+  assert.strictEqual(perft(s, 2), 2039);
+  assert.strictEqual(perft(s, 3), 97862);
+});
+```
+
+The real coach also gives **opening advice** (developing knights and bishops, pawns in the center, castling early, not bringing the queen out on move 3), flags **missed captures** ("You could have won material with Nxe5"), lets you **take a move back** after a mistake, and notices **threefold repetition**.
+
 ## Finish
 
 ### What you learned
