@@ -4,6 +4,7 @@ import { encodeProject, decodeProject } from './share.js';
 import { TEMPLATES } from './templates.js';
 import { PROJECT_TEMPLATES } from './project-templates.js';
 import { Projects, suggestName } from './storage.js';
+import { initTutor } from './tutor.js';
 
 const projects = new Projects();
 
@@ -241,3 +242,10 @@ document.querySelectorAll('.tabs button').forEach((b) => {
 const shared = await decodeProject(location.hash);
 if (location.hash && !shared) toast('That share link looks incomplete, so the starter code is shown instead.');
 setProject(shared ?? projects.draft() ?? TEMPLATES.hello);
+
+// The guides: they read and replace the editor's code through these three calls
+initTutor({
+  getCode: current,
+  setCode: (code) => { setProject(code); projects.saveDraft(code); history.replaceState(null, '', location.pathname + location.search); },
+  toast,
+});
