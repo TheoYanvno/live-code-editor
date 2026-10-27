@@ -30,6 +30,11 @@ export default {
    "title": "Guessing and backtracking",
    "from": 6,
    "to": 8
+  },
+  {
+   "title": "Making new puzzles",
+   "from": 9,
+   "to": 10
   }
  ],
  "start": {
@@ -548,6 +553,112 @@ export default {
    "minutes": 20,
    "js": {
     "watch": "const logEl = document.getElementById('log');\nlet watchTimer = null;\n\n// Replays the solver's recorded steps one at a time, with the reason for each.\nfunction watchSolve() {\n  clearTimeout(watchTimer);\n  const start = readGrid();\n  if (conflicts(start).length) { setStatus('Fix the red cells first'); return; }\n  const { solution, steps } = solve(start, { record: true });\n  if (!solution) { setStatus('This puzzle has no solution'); return; }\n  showGrid(start);\n  logEl.innerHTML = '';\n  let k = 0;\n  const tick = () => {\n    if (k >= steps.length) { setStatus(`Done: ${steps.length} steps`); return; }\n    const s = steps[k++];\n    if (s.snapshot) {\n      // a guess or an undo: put the board back the way it was before that guess\n      s.snapshot.forEach((v, i) => {\n        if (start[i]) return;\n        cells[i].value = v || '';\n        cells[i].className = v ? 'solved' : '';\n      });\n    }\n    if (s.type !== 'backtrack') {\n      cells[s.index].value = s.value;\n      cells[s.index].className = s.type === 'guess' ? 'guess' : 'solved';\n    }\n    const li = document.createElement('li');\n    li.textContent = s.reason;\n    li.className = s.type;\n    logEl.prepend(li);\n    setStatus(s.reason);\n    watchTimer = setTimeout(tick, steps.length > 400 ? 15 : 120);   // long solves play faster\n  };\n  tick();\n}\n\ndocument.getElementById('watch').onclick = watchSolve;"
+   }
+  },
+  {
+   "title": "Counting solutions, and randomness you can repeat",
+   "body": "A real Sudoku has **exactly one** solution. To make puzzles, we first need to check that. `countSolutions(grid, limit)` runs the same search as `solve()`, but when it finds a solution it counts it and keeps going, and it stops as soon as it reaches `limit`. With `limit = 2`, the answer is 0 (impossible), 1 (a proper puzzle) or 2 (more than one answer). It never needs to find all of them.\n\nMaking puzzles also needs randomness. `Math.random()` gives different numbers every time, which is great for players but bad for testing: a bug in one random puzzle may never show up again. `mulberry32(seed)` is a tiny **seeded** random number generator: the same seed always gives the same sequence, so a puzzle can be recreated from its seed and tests are repeatable.\n\n`shuffle(list, rand)` is the Fisher-Yates shuffle: walk the list from the end and swap each item with a random earlier (or same) one. Every order is equally likely.\n\n### Try it\n\nIn the console, try `countSolutions(new Array(81).fill(0))`: an empty grid has billions of solutions, but the answer is 2 because it stops there. Try `const r = mulberry32(42); r(); r();` twice: same numbers both times.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "a countSolutions() function",
+     "test": "/function\\s+countSolutions\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "it stops at the limit",
+     "test": "/count\\s*>=\\s*limit/"
+    },
+    {
+     "pane": "js",
+     "label": "a seeded random number generator",
+     "test": "/function\\s+mulberry32\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "a shuffle() function",
+     "test": "/function\\s+shuffle\\s*\\(/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why does countSolutions stop at 2?",
+     "options": [
+      "It can't count higher than 2",
+      "We only need to know whether there is more than one answer, and finding them all could take forever",
+      "Sudoku puzzles have at most 2 solutions"
+     ],
+     "answer": 1,
+     "why": "Exactly one is what matters; the moment a second appears, the puzzle is ambiguous."
+    },
+    {
+     "q": "What is a seeded random number generator good for here?",
+     "options": [
+      "It makes puzzles harder",
+      "The same seed recreates the same puzzle, so tests and shared puzzles are repeatable",
+      "It is faster than Math.random()"
+     ],
+     "answer": 1,
+     "why": "Repeatable randomness means a bug found with seed 42 shows up again every time you try seed 42."
+    }
+   ],
+   "session": 3,
+   "minutes": 15,
+   "js": {
+    "generate": "// Counts solutions, stopping at `limit`. A proper puzzle has exactly 1.\nfunction countSolutions(grid, limit = 2) {\n  if (conflicts(grid).length) return 0;\n  let count = 0;\n  const search = (b) => {\n    if (count >= limit || !propagate(b)) return;\n    if (b.values.every(Boolean)) { count++; return; }\n    const i = bestCell(b);\n    for (const d of digitsOf(b.cands[i])) {\n      const next = cloneBoard(b);\n      place(next, i, d);\n      search(next);\n      if (count >= limit) return;\n    }\n  };\n  search(newBoard(grid));\n  return count;\n}\n\n// A small seeded random number generator: the same seed always gives the same numbers.\nfunction mulberry32(seed) {\n  let a = seed >>> 0;\n  return () => {\n    a = (a + 0x6d2b79f5) >>> 0;\n    let t = a;\n    t = Math.imul(t ^ (t >>> 15), t | 1);\n    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);\n    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;\n  };\n}\n\n// Fisher-Yates shuffle: every order is equally likely.\nfunction shuffle(list, rand) {\n  const a = list.slice();\n  for (let i = a.length - 1; i > 0; i--) {\n    const j = Math.floor(rand() * (i + 1));\n    [a[i], a[j]] = [a[j], a[i]];\n  }\n  return a;\n}"
+   }
+  },
+  {
+   "title": "Carving a puzzle with one answer",
+   "body": "Now the generator, in three steps:\n\n1. **A random finished grid.** Solve an *empty* grid, but shuffle the candidate digits before each guess (`solve(..., { order })`). A different shuffle gives a different finished grid.\n2. **Carve.** Visit the 81 cells in random order and blank each one. If the puzzle still has exactly one solution, leave it blank; if not, put the digit back. Stop when the clue count reaches the level's minimum.\n3. **Grade.** Solve the result and look at the stats: easy and medium puzzles must need **no** guesses (medium just has fewer clues); hard ones must need at least one. If a grid doesn't fit the level, try another (up to 40).\n\n```svg Carving: remove a clue, keep it out only if the puzzle still has one answer\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 348 135\" font-family=\"sans-serif\"><rect x=\"6\" y=\"20\" width=\"76\" height=\"40\" rx=\"6\" fill=\"#bbf7d0\" stroke=\"#475569\"/><text x=\"44\" y=\"44\" text-anchor=\"middle\" font-size=\"11\">full grid</text><line x1=\"82\" y1=\"40\" x2=\"90\" y2=\"40\" stroke=\"#475569\" stroke-width=\"2\"/><rect x=\"90\" y=\"20\" width=\"76\" height=\"40\" rx=\"6\" fill=\"#e2e8f0\" stroke=\"#475569\"/><text x=\"128\" y=\"44\" text-anchor=\"middle\" font-size=\"11\">remove a clue</text><line x1=\"166\" y1=\"40\" x2=\"174\" y2=\"40\" stroke=\"#475569\" stroke-width=\"2\"/><rect x=\"174\" y=\"20\" width=\"76\" height=\"40\" rx=\"6\" fill=\"#fef9c3\" stroke=\"#475569\"/><text x=\"212\" y=\"44\" text-anchor=\"middle\" font-size=\"11\">still 1 solution?</text><line x1=\"250\" y1=\"40\" x2=\"258\" y2=\"40\" stroke=\"#475569\" stroke-width=\"2\"/><rect x=\"258\" y=\"20\" width=\"76\" height=\"40\" rx=\"6\" fill=\"#bbf7d0\" stroke=\"#475569\"/><text x=\"296\" y=\"44\" text-anchor=\"middle\" font-size=\"11\">keep it out</text><path d=\"M214 60 V88 H130 V60\" fill=\"none\" stroke=\"#b91c1c\" stroke-width=\"2\"/><text x=\"172\" y=\"102\" text-anchor=\"middle\" font-size=\"11\" fill=\"#b91c1c\">no: put it back, try the next cell</text><text x=\"172\" y=\"124\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">repeat for every cell in random order, stop at the level's clue count</text></svg>\n```\n\n| Level | Fewest clues | Guessing |\n|---|---|---|\n| Easy | 36 | none |\n| Medium | 28 | none |\n| Hard | 22 | at least one |\n\nPick a level and press **New puzzle**. It usually takes well under a second. Then press **Watch it solve** to see why it got the level it did.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "a carve() function",
+     "test": "/function\\s+carve\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "a clue stays out only if there's still one answer",
+     "test": "/countSolutions\\(\\s*puzzle\\s*,\\s*2\\s*\\)\\s*===\\s*1/"
+    },
+    {
+     "pane": "js",
+     "label": "puzzles are graded by guessing",
+     "test": "/stats\\.guesses\\s*===\\s*0/"
+    },
+    {
+     "pane": "js",
+     "label": "the New puzzle button is wired up",
+     "test": "/getElementById\\(\\s*['\"]new['\"]\\s*\\)\\.onclick/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "While carving, removing a clue makes countSolutions return 2. What happens?",
+     "options": [
+      "The clue is put back, because without it the puzzle would have two answers",
+      "The puzzle is thrown away and carving starts over",
+      "The clue stays out and the level goes up"
+     ],
+     "answer": 0,
+     "why": "Every clue left in the finished puzzle is one that keeps the answer unique."
+    },
+    {
+     "q": "How does the generator know a puzzle is \"hard\"?",
+     "options": [
+      "It has fewer than 30 clues",
+      "The solver needed at least one guess to finish it",
+      "A random number decides"
+     ],
+     "answer": 1,
+     "why": "The grade comes from how the solver had to work, which matches how a person would experience it."
+    }
+   ],
+   "session": 3,
+   "minutes": 15,
+   "js": {
+    "generate": "// Counts solutions, stopping at `limit`. A proper puzzle has exactly 1.\nfunction countSolutions(grid, limit = 2) {\n  if (conflicts(grid).length) return 0;\n  let count = 0;\n  const search = (b) => {\n    if (count >= limit || !propagate(b)) return;\n    if (b.values.every(Boolean)) { count++; return; }\n    const i = bestCell(b);\n    for (const d of digitsOf(b.cands[i])) {\n      const next = cloneBoard(b);\n      place(next, i, d);\n      search(next);\n      if (count >= limit) return;\n    }\n  };\n  search(newBoard(grid));\n  return count;\n}\n\n// A small seeded random number generator: the same seed always gives the same numbers.\nfunction mulberry32(seed) {\n  let a = seed >>> 0;\n  return () => {\n    a = (a + 0x6d2b79f5) >>> 0;\n    let t = a;\n    t = Math.imul(t ^ (t >>> 15), t | 1);\n    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);\n    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;\n  };\n}\n\n// Fisher-Yates shuffle: every order is equally likely.\nfunction shuffle(list, rand) {\n  const a = list.slice();\n  for (let i = a.length - 1; i > 0; i--) {\n    const j = Math.floor(rand() * (i + 1));\n    [a[i], a[j]] = [a[j], a[i]];\n  }\n  return a;\n}\n\nconst LEVELS = {\n  easy: { minClues: 36, guesses: 'none' },     // lots of clues; logic is enough\n  medium: { minClues: 28, guesses: 'none' },   // fewer clues, still no guessing\n  hard: { minClues: 22, guesses: 'some' },     // needs at least one guess\n};\n\n// A random finished grid: solve an empty grid, trying digits in random order.\nfunction randomSolution(rand) {\n  return solve(new Array(81).fill(0), { order: (digits) => shuffle(digits, rand) }).solution;\n}\n\n// Removes clues in random order, putting one back whenever removing it allows a second solution.\nfunction carve(solution, minClues, rand) {\n  const puzzle = solution.slice();\n  let clues = 81;\n  for (const i of shuffle([...Array(81).keys()], rand)) {\n    if (clues <= minClues) break;\n    const keep = puzzle[i];\n    puzzle[i] = 0;\n    if (countSolutions(puzzle, 2) === 1) clues--;\n    else puzzle[i] = keep;\n  }\n  return puzzle;\n}\n\n// Tries a few grids until one grades at the requested level.\nfunction generate(level = 'medium', seed = Math.floor(Math.random() * 2 ** 31)) {\n  const spec = LEVELS[level] ?? LEVELS.medium;\n  const rand = mulberry32(seed);\n  let best = null;\n  for (let attempt = 0; attempt < 40; attempt++) {\n    const puzzle = carve(randomSolution(rand), spec.minClues, rand);\n    const { stats } = solve(puzzle);\n    const fits = spec.guesses === 'none' ? stats.guesses === 0 : stats.guesses > 0;\n    if (fits) return puzzle;\n    best ??= puzzle;\n  }\n  return best;\n}\n\ndocument.getElementById('new').onclick = () => {\n  const level = document.getElementById('level').value;\n  const puzzle = generate(level);\n  showGrid(puzzle);\n  setStatus(`A new ${level} puzzle with ${puzzle.filter(Boolean).length} clues and exactly one solution`);\n};"
    }
   }
  ],
