@@ -25,6 +25,11 @@ export default {
    "title": "The rules of chess",
    "from": 3,
    "to": 6
+  },
+  {
+   "title": "A computer opponent",
+   "from": 7,
+   "to": 9
   }
  ],
  "start": {
@@ -433,6 +438,169 @@ export default {
     "moves": "// Every move each piece could make, before checking whether it leaves your own king in check.\nfunction pseudoMoves(s) {\n  const moves = [];\n  const b = s.board;\n  const me = s.turn;\n  const them = me === 'w' ? 'b' : 'w';\n  const add = (from, to, extra = {}) => moves.push({ from, to, piece: b[from], captured: b[to], ...extra });\n\n  for (let from = 0; from < 64; from++) {\n    const p = b[from];\n    if (!p || colorOf(p) !== me) continue;\n    const type = p.toUpperCase();\n    if (type === 'P') {\n      const dir = me === 'w' ? -1 : 1;                         // white moves up the board (toward row 0)\n      const startRow = me === 'w' ? 6 : 1;\n      const lastRow = me === 'w' ? 0 : 7;\n      const pushOrPromote = (to, extra = {}) => {\n        if (rankOf(to) === lastRow) for (const promo of 'QRBN') add(from, to, { ...extra, promotion: me === 'w' ? promo : promo.toLowerCase() });\n        else add(from, to, extra);\n      };\n      const one = step(from, 0, dir);\n      if (one >= 0 && !b[one]) {\n        pushOrPromote(one);\n        const two = step(from, 0, 2 * dir);\n        if (rankOf(from) === startRow && !b[two]) add(from, two, { double: true });\n      }\n      for (const df of [-1, 1]) {                               // pawns capture diagonally\n        const to = step(from, df, dir);\n        if (to < 0) continue;\n        if (b[to] && colorOf(b[to]) === them) pushOrPromote(to);\n        else if (to === s.ep) add(from, to, { enPassant: true, captured: me === 'w' ? 'p' : 'P' });\n      }\n      continue;\n    }\n    if (type === 'N' || type === 'K') {                         // jumpers: one step in each direction\n      for (const [df, dr] of type === 'N' ? KNIGHT : KING) {\n        const to = step(from, df, dr);\n        if (to >= 0 && colorOf(b[to]) !== me) add(from, to);\n      }\n      if (type === 'K') {   // castling: king on its home square, rights not lost, squares between empty and not attacked\n        const row = me === 'w' ? 7 : 0;\n        const home = row * 8 + 4;\n        if (from === home && !isAttacked(s, home, them)) {\n          const [kSide, qSide] = me === 'w' ? ['K', 'Q'] : ['k', 'q'];\n          if (s.castling.includes(kSide) && !b[home + 1] && !b[home + 2]\n              && !isAttacked(s, home + 1, them) && !isAttacked(s, home + 2, them)) add(from, home + 2, { castle: 'K' });\n          if (s.castling.includes(qSide) && !b[home - 1] && !b[home - 2] && !b[home - 3]\n              && !isAttacked(s, home - 1, them) && !isAttacked(s, home - 2, them)) add(from, home - 2, { castle: 'Q' });\n        }\n      }\n    } else {                                                     // sliders: keep going until something is in the way\n      const dirs = type === 'R' ? ROOK_DIRS : type === 'B' ? BISHOP_DIRS : [...ROOK_DIRS, ...BISHOP_DIRS];\n      for (const [df, dr] of dirs) {\n        let to = step(from, df, dr);\n        while (to >= 0) {\n          if (!b[to]) add(from, to);\n          else { if (colorOf(b[to]) === them) add(from, to); break; }\n          to = step(to, df, dr);\n        }\n      }\n    }\n  }\n  return moves;\n}",
     "rules": "// Returns a NEW state with the move made. The old state is never changed:\n// the computer will try thousands of moves on copies without disturbing the real game.\nfunction makeMove(s, m) {\n  const b = s.board.slice();\n  const me = s.turn;\n  b[m.to] = m.promotion || b[m.from];                   // a promoting pawn turns into the new piece\n  b[m.from] = null;\n  if (m.enPassant) b[m.to + (me === 'w' ? 8 : -8)] = null;    // the captured pawn is beside, not on, the target\n  if (m.castle) {                                             // castling moves the rook too\n    const row = me === 'w' ? 56 : 0;\n    if (m.castle === 'K') { b[row + 5] = b[row + 7]; b[row + 7] = null; }\n    else { b[row + 3] = b[row]; b[row] = null; }\n  }\n  let castling = s.castling;\n  const strip = (chars) => { for (const c of chars) castling = castling.replace(c, ''); };\n  if (m.piece === 'K') strip('KQ');\n  if (m.piece === 'k') strip('kq');\n  for (const sq of [m.from, m.to]) {                          // a rook moving or being captured loses that side\n    if (sq === 63) strip('K');\n    if (sq === 56) strip('Q');\n    if (sq === 7) strip('k');\n    if (sq === 0) strip('q');\n  }\n  return {\n    board: b,\n    turn: me === 'w' ? 'b' : 'w',\n    castling,\n    ep: m.double ? (m.from + m.to) / 2 : -1,               // the square a double-step pawn skipped over\n    halfmove: m.captured || m.piece.toUpperCase() === 'P' ? 0 : s.halfmove + 1,\n    fullmove: s.fullmove + (me === 'b' ? 1 : 0),\n  };\n}\n\n// Is square sq attacked by side `by`? Look outward FROM the square for each kind of attacker.\nfunction isAttacked(s, sq, by) {\n  const b = s.board;\n  const is = (i, type) => i >= 0 && b[i] && colorOf(b[i]) === by && b[i].toUpperCase() === type;\n  const pr = by === 'w' ? 1 : -1;        // a white pawn attacks upward, so it sits one row below the square\n  if (is(step(sq, -1, pr), 'P') || is(step(sq, 1, pr), 'P')) return true;\n  for (const [df, dr] of KNIGHT) if (is(step(sq, df, dr), 'N')) return true;\n  for (const [df, dr] of KING) if (is(step(sq, df, dr), 'K')) return true;\n  const slide = (dirs, types) => dirs.some(([df, dr]) => {\n    let i = step(sq, df, dr);\n    while (i >= 0) {\n      if (b[i]) return colorOf(b[i]) === by && types.includes(b[i].toUpperCase());\n      i = step(i, df, dr);\n    }\n    return false;\n  });\n  return slide(ROOK_DIRS, 'RQ') || slide(BISHOP_DIRS, 'BQ');\n}\n\nconst kingSquare = (s, color) => s.board.indexOf(color === 'w' ? 'K' : 'k');\nconst inCheck = (s, color = s.turn) => isAttacked(s, kingSquare(s, color), color === 'w' ? 'b' : 'w');\n\n// A move is legal if, after making it, your own king is not attacked.\nfunction legalMoves(s) {\n  return pseudoMoves(s).filter((m) => !inCheck(makeMove(s, m), s.turn));\n}\n\n// Checkmate, stalemate, the fifty-move rule and kings that can't be mated.\nfunction gameResult(s) {\n  const moves = legalMoves(s);\n  if (!moves.length) {\n    return inCheck(s)\n      ? { over: true, winner: s.turn === 'w' ? 'b' : 'w', reason: 'checkmate' }\n      : { over: true, winner: null, reason: 'stalemate' };\n  }\n  if (s.halfmove >= 100) return { over: true, winner: null, reason: 'fifty-move rule' };\n  const pieces = s.board.filter(Boolean).map((p) => p.toUpperCase()).filter((p) => p !== 'K');\n  if (pieces.length === 0 || (pieces.length === 1 && 'NB'.includes(pieces[0]))) {\n    return { over: true, winner: null, reason: 'insufficient material' };\n  }\n  return { over: false };\n}",
     "ui": "const $ = (id) => document.getElementById(id);\nconst GLYPH = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' };   // solid shapes; CSS colors them white or black\nlet state = fromFen(START_FEN);\nlet selected = null;           // the square you clicked first\nlet lastMove = null;\n\n// The moves the piece on square i can really make.\nconst movesFrom = (i) => legalMoves(state).filter((m) => m.from === i);\n\nfunction render() {\n  const board = $('board');\n  board.innerHTML = '';\n  const targets = selected === null ? [] : movesFrom(selected);\n  const checkSq = inCheck(state) ? kingSquare(state, state.turn) : -1;\n  for (let i = 0; i < 64; i++) {\n    const sq = document.createElement('button');\n    const dark = (Math.floor(i / 8) + (i % 8)) % 2 === 1;\n    sq.className = `sq ${dark ? 'dark' : 'light'}`;\n    sq.dataset.i = i;\n    sq.setAttribute('aria-label', sqName(i) + (state.board[i] ? ` ${state.board[i]}` : ''));\n    if (lastMove && (i === lastMove.from || i === lastMove.to)) sq.classList.add('last');\n    if (i === selected) sq.classList.add('sel');\n    const t = targets.find((m) => m.to === i);\n    if (t) sq.classList.add(t.captured ? 'capture' : 'target');\n    if (i === checkSq) sq.classList.add('check');\n    const p = state.board[i];\n    if (p) sq.innerHTML = `<span class=\"piece ${colorOf(p)}\">${GLYPH[p.toUpperCase()]}</span>`;\n    board.appendChild(sq);\n  }\n  const result = gameResult(state);\n  if (result.over) {\n    $('status').textContent = result.winner ? `${result.winner === 'w' ? 'White' : 'Black'} wins by ${result.reason}!` : `Draw by ${result.reason}.`;\n  } else {\n    $('status').textContent = `${state.turn === 'w' ? 'White' : 'Black'} to move${inCheck(state) ? ' (check!)' : ''}`;\n  }\n  return result;\n}\n\nfunction play(move) {\n  state = makeMove(state, move);\n  lastMove = move;\n  selected = null;\n  render();\n}\n\n$('board').addEventListener('click', (e) => {\n  const sq = e.target.closest('.sq');\n  if (!sq) return;\n  const i = Number(sq.dataset.i);\n  // second click: a move to this square? (a promoting pawn always becomes a queen here)\n  const move = selected === null ? null : movesFrom(selected).find((m) => m.to === i && (!m.promotion || 'Qq'.includes(m.promotion)));\n  if (move) return play(move);\n  selected = colorOf(state.board[i]) === state.turn ? i : null;   // first click: pick up your own piece\n  render();\n});\n\n$('new').onclick = () => {\n  state = fromFen(START_FEN);\n  selected = null;\n  lastMove = null;\n  render();\n};"
+   }
+  },
+  {
+   "title": "Scoring a position",
+   "body": "A chess program needs a way to say \"how good is this position?\" as a number. This is the **evaluation**, and it's measured in **centipawns**: 100 is one pawn.\n\nThe first part is material. The real app uses these values:\n\n| Piece | Value |\n|---|---|\n| Pawn | 100 |\n| Knight | 320 |\n| Bishop | 330 |\n| Rook | 500 |\n| Queen | 900 |\n\nThe second part is **piece-square tables** (`PST`): for each kind of piece, 64 bonuses (or penalties) for standing on each square. Knights get +20 in the center and -50 in the corners (\"a knight on the rim is dim\"), pawns get more as they advance, and the king gets a bonus for hiding behind its pawns. The tables are written from white's side of the board, so black's pieces look up the mirrored square: the same column, row `7 - row`.\n\n`evaluate(s)` adds everything up from **white's point of view**: white's pieces count plus, black's count minus. 0 means equal, +300 means white is roughly a knight ahead.\n\n### Try it\n\nThe console shows the start position's score: 0, because the position is perfectly balanced. In the console, try `evaluate(fromFen('4k3/8/8/8/8/8/8/3QK3 w - - 0 1'))`: white has an extra queen, so it's about +900.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "piece values",
+     "test": "/const\\s+VALUES\\s*=/"
+    },
+    {
+     "pane": "js",
+     "label": "piece-square tables",
+     "test": "/const\\s+PST\\s*=/"
+    },
+    {
+     "pane": "js",
+     "label": "an evaluate() function",
+     "test": "/function\\s+evaluate\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "black looks up the mirrored square",
+     "test": "/\\(\\s*7\\s*-\\s*Math\\.floor\\(\\s*i\\s*\\/\\s*8\\s*\\)\\s*\\)\\s*\\*\\s*8/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "evaluate() returns -350. What does that mean?",
+     "options": [
+      "Black is ahead by about a knight or bishop",
+      "White is ahead by 350 pawns",
+      "The game is over"
+     ],
+     "answer": 0,
+     "why": "Scores are from white's side in centipawns, so negative is good for black, and 350 is a bit more than a minor piece."
+    },
+    {
+     "q": "What do piece-square tables add that material alone can't?",
+     "options": [
+      "They count the pieces",
+      "They reward good squares, like knights in the center, so the computer develops its pieces sensibly",
+      "They make moves legal"
+     ],
+     "answer": 1,
+     "why": "With material only, every non-capturing move scores the same and the computer would shuffle pieces at random."
+    }
+   ],
+   "session": 2,
+   "minutes": 15,
+   "js": {
+    "ai": "// Piece values in centipawns: 100 = one pawn.\nconst VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0 };\nconst MATE = 100000;\n\n// Piece-square tables, from white's side of the board (index 0 = a8): bonuses for good squares.\n// Knights love the center, pawns want to advance, the king wants to hide behind its pawns.\nconst PST = {\n  P: [0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5,\n      0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],\n  N: [-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30, -30,5,15,20,20,15,5,-30,\n      -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30, -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],\n  B: [-20,-10,-10,-10,-10,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,10,10,5,0,-10, -10,5,5,10,10,5,5,-10,\n      -10,0,10,10,10,10,0,-10, -10,10,10,10,10,10,10,-10, -10,5,0,0,0,0,5,-10, -20,-10,-10,-10,-10,-10,-10,-20],\n  R: [0,0,0,0,0,0,0,0, 5,10,10,10,10,10,10,5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5,\n      -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 0,0,0,5,5,0,0,0],\n  Q: [-20,-10,-10,-5,-5,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,5,5,5,0,-10, -5,0,5,5,5,5,0,-5,\n      0,0,5,5,5,5,0,-5, -10,5,5,5,5,5,0,-10, -10,0,5,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],\n  K: [-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30,\n      -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10, 20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20],\n};\n\n// The score in centipawns from white's point of view: positive is good for white.\nfunction evaluate(s) {\n  let score = 0;\n  s.board.forEach((p, i) => {\n    if (!p) return;\n    const type = p.toUpperCase();\n    const white = colorOf(p) === 'w';\n    const pst = PST[type][white ? i : (7 - Math.floor(i / 8)) * 8 + (i % 8)];   // mirror the table for black\n    score += (white ? 1 : -1) * (VALUES[type] + pst);\n  });\n  return score;\n}",
+    "go": "render();\nconsole.log('The start position scores', evaluate(state), '(0 = equal)');"
+   }
+  },
+  {
+   "title": "Looking ahead with negamax and alpha-beta",
+   "body": "To choose a move, the computer imagines each move, then the opponent's best reply, then its own best answer, and so on, `depth` moves deep. This is a recursive `search()`.\n\n**Negamax.** One trick keeps it short: a position that's +200 for me is -200 for my opponent. So `search()` always scores from the side to move's point of view, and a move's score is **minus** the score of the position it leads to. The same function works for both players.\n\n- No legal moves: checkmate scores `-MATE + ply` (being mated sooner is worse), stalemate scores 0.\n- `depth` 0: return the evaluation, flipped for black.\n- Otherwise: try every move and keep the best.\n\n**Alpha-beta pruning.** Searching every move to depth 3 is about 30 x 30 x 30 = 27,000 positions. Alpha-beta skips lines that can't matter: `alpha` is the best score I'm already sure of, `beta` the best my opponent is sure of. As soon as one reply shows a move is worse than one I already have, the rest of that move's replies don't matter.\n\n```svg Alpha-beta: once one reply proves move B is worse than move A, the rest of B can be skipped\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 420 200\" font-family=\"sans-serif\"><rect x=\"160\" y=\"8\" width=\"100\" height=\"28\" rx=\"6\" fill=\"#e2e8f0\"/><text x=\"210\" y=\"27\" text-anchor=\"middle\" font-size=\"12\">your move</text><line x1=\"190\" y1=\"36\" x2=\"105\" y2=\"70\" stroke=\"#475569\" stroke-width=\"2\"/><line x1=\"230\" y1=\"36\" x2=\"315\" y2=\"70\" stroke=\"#475569\" stroke-width=\"2\"/><rect x=\"50\" y=\"70\" width=\"110\" height=\"28\" rx=\"6\" fill=\"#bbf7d0\"/><text x=\"105\" y=\"89\" text-anchor=\"middle\" font-size=\"12\">move A: worst = +1</text><rect x=\"260\" y=\"70\" width=\"110\" height=\"28\" rx=\"6\" fill=\"#ffedd5\"/><text x=\"315\" y=\"89\" text-anchor=\"middle\" font-size=\"12\">move B: ?</text><line x1=\"85\" y1=\"98\" x2=\"60\" y2=\"130\" stroke=\"#475569\"/><line x1=\"125\" y1=\"98\" x2=\"150\" y2=\"130\" stroke=\"#475569\"/><text x=\"60\" y=\"146\" text-anchor=\"middle\" font-size=\"12\">+1</text><text x=\"150\" y=\"146\" text-anchor=\"middle\" font-size=\"12\">+3</text><line x1=\"295\" y1=\"98\" x2=\"270\" y2=\"130\" stroke=\"#475569\"/><line x1=\"335\" y1=\"98\" x2=\"360\" y2=\"130\" stroke=\"#94a3b8\" stroke-dasharray=\"4 3\"/><text x=\"270\" y=\"146\" text-anchor=\"middle\" font-size=\"12\" fill=\"#b91c1c\">-2</text><text x=\"360\" y=\"146\" text-anchor=\"middle\" font-size=\"12\" fill=\"#94a3b8\">skipped</text><text x=\"210\" y=\"176\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">their reply to B already makes B worse (-2) than A (+1),</text><text x=\"210\" y=\"192\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">so B's other replies don't matter: that branch is \"pruned\"</text></svg>\n```\n\n`rankMoves(s, depth)` scores every legal move and sorts them best first. The coach will use that list too. For now `chooseMove()` plays the top one.\n\nYou play white. After your move, `play()` sets `busy`, shows \"Computer is thinking…\", and calls `computerMove()` with `setTimeout`, so the page can draw the message before the search starts.\n\n### Try it\n\nPlay a move. Black answers. Hang a piece (put your queen where a pawn can take it) and watch the computer take it.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "a search() function",
+     "test": "/function\\s+search\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "alpha-beta cut-off",
+     "test": "/if\\s*\\(\\s*score\\s*>=\\s*beta\\s*\\)\\s*return\\s+beta/"
+    },
+    {
+     "pane": "js",
+     "label": "moves ranked best first",
+     "test": "/function\\s+rankMoves\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "the computer answers your move",
+     "test": "/setTimeout\\(\\s*computerMove/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why is a move's score minus the score of the position after it?",
+     "options": [
+      "Scores are always negative",
+      "The next position is scored for the opponent, and what's good for them is bad for you",
+      "To make the numbers smaller"
+     ],
+     "answer": 1,
+     "why": "That's the \"nega\" in negamax: one function scores positions for whoever is to move."
+    },
+    {
+     "q": "What does alpha-beta pruning change about the result?",
+     "options": [
+      "It finds a different, weaker move",
+      "Nothing: it finds the same best move, just without searching lines that can't change the answer",
+      "It makes the computer play randomly"
+     ],
+     "answer": 1,
+     "why": "Pruned branches are ones that provably can't beat a move already found."
+    }
+   ],
+   "session": 2,
+   "minutes": 20,
+   "js": {
+    "ai": "// Piece values in centipawns: 100 = one pawn.\nconst VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0 };\nconst MATE = 100000;\n\n// Piece-square tables, from white's side of the board (index 0 = a8): bonuses for good squares.\n// Knights love the center, pawns want to advance, the king wants to hide behind its pawns.\nconst PST = {\n  P: [0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5,\n      0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],\n  N: [-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30, -30,5,15,20,20,15,5,-30,\n      -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30, -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],\n  B: [-20,-10,-10,-10,-10,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,10,10,5,0,-10, -10,5,5,10,10,5,5,-10,\n      -10,0,10,10,10,10,0,-10, -10,10,10,10,10,10,10,-10, -10,5,0,0,0,0,5,-10, -20,-10,-10,-10,-10,-10,-10,-20],\n  R: [0,0,0,0,0,0,0,0, 5,10,10,10,10,10,10,5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5,\n      -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 0,0,0,5,5,0,0,0],\n  Q: [-20,-10,-10,-5,-5,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,5,5,5,0,-10, -5,0,5,5,5,5,0,-5,\n      0,0,5,5,5,5,0,-5, -10,5,5,5,5,5,0,-10, -10,0,5,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],\n  K: [-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30,\n      -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10, 20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20],\n};\n\n// The score in centipawns from white's point of view: positive is good for white.\nfunction evaluate(s) {\n  let score = 0;\n  s.board.forEach((p, i) => {\n    if (!p) return;\n    const type = p.toUpperCase();\n    const white = colorOf(p) === 'w';\n    const pst = PST[type][white ? i : (7 - Math.floor(i / 8)) * 8 + (i % 8)];   // mirror the table for black\n    score += (white ? 1 : -1) * (VALUES[type] + pst);\n  });\n  return score;\n}\n\n// Negamax with alpha-beta: the best score the side to move can force, looking `depth` moves ahead.\n// \"Nega\" because my score is minus my opponent's score, so one function works for both sides.\nfunction search(s, depth, alpha = -Infinity, beta = Infinity, ply = 0) {\n  const moves = legalMoves(s);\n  if (!moves.length) return inCheck(s) ? -MATE + ply : 0;   // checkmated (sooner is worse) or stalemate\n  if (depth === 0) return (s.turn === 'w' ? 1 : -1) * evaluate(s);\n  for (const m of moves) {\n    const score = -search(makeMove(s, m), depth - 1, -beta, -alpha, ply + 1);\n    if (score >= beta) return beta;      // the opponent would never allow this line: stop looking\n    if (score > alpha) alpha = score;    // the best we've found so far\n  }\n  return alpha;\n}\n\n// Every legal move with its score, best first.\nfunction rankMoves(s, depth) {\n  return legalMoves(s)\n    .map((move) => ({ move, score: -search(makeMove(s, move), depth - 1, -Infinity, Infinity, 1) }))\n    .sort((a, b) => b.score - a.score);\n}\n\nfunction chooseMove(s, depth = 2) {\n  return rankMoves(s, depth)[0].move;\n}",
+    "ui": "const $ = (id) => document.getElementById(id);\nconst GLYPH = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' };   // solid shapes; CSS colors them white or black\nlet state = fromFen(START_FEN);\nlet selected = null;           // the square you clicked first\nlet lastMove = null;\nlet busy = false;              // true while the computer is thinking\n\n// The moves the piece on square i can really make.\nconst movesFrom = (i) => legalMoves(state).filter((m) => m.from === i);\n\nfunction render() {\n  const board = $('board');\n  board.innerHTML = '';\n  const targets = selected === null ? [] : movesFrom(selected);\n  const checkSq = inCheck(state) ? kingSquare(state, state.turn) : -1;\n  for (let i = 0; i < 64; i++) {\n    const sq = document.createElement('button');\n    const dark = (Math.floor(i / 8) + (i % 8)) % 2 === 1;\n    sq.className = `sq ${dark ? 'dark' : 'light'}`;\n    sq.dataset.i = i;\n    sq.setAttribute('aria-label', sqName(i) + (state.board[i] ? ` ${state.board[i]}` : ''));\n    if (lastMove && (i === lastMove.from || i === lastMove.to)) sq.classList.add('last');\n    if (i === selected) sq.classList.add('sel');\n    const t = targets.find((m) => m.to === i);\n    if (t) sq.classList.add(t.captured ? 'capture' : 'target');\n    if (i === checkSq) sq.classList.add('check');\n    const p = state.board[i];\n    if (p) sq.innerHTML = `<span class=\"piece ${colorOf(p)}\">${GLYPH[p.toUpperCase()]}</span>`;\n    board.appendChild(sq);\n  }\n  const result = gameResult(state);\n  if (result.over) {\n    $('status').textContent = result.winner ? `${result.winner === 'w' ? 'White' : 'Black'} wins by ${result.reason}!` : `Draw by ${result.reason}.`;\n  } else if (busy) {\n    $('status').textContent = 'Computer is thinking…';\n  } else {\n    $('status').textContent = `${state.turn === 'w' ? 'White' : 'Black'} to move${inCheck(state) ? ' (check!)' : ''}`;\n  }\n  return result;\n}\n\nfunction play(move) {\n  state = makeMove(state, move);\n  lastMove = move;\n  selected = null;\n  const result = render();\n  if (!result.over && state.turn === 'b') {   // you play white; the computer answers\n    busy = true;\n    render();\n    setTimeout(computerMove, 30);              // let the page show \"thinking…\" first\n  }\n}\n\nfunction computerMove() {\n  const move = chooseMove(state, 2);\n  busy = false;\n  play(move);\n}\n\n$('board').addEventListener('click', (e) => {\n  const sq = e.target.closest('.sq');\n  if (!sq || busy || state.turn !== 'w') return;\n  const i = Number(sq.dataset.i);\n  // second click: a move to this square? (a promoting pawn always becomes a queen here)\n  const move = selected === null ? null : movesFrom(selected).find((m) => m.to === i && (!m.promotion || 'Qq'.includes(m.promotion)));\n  if (move) return play(move);\n  selected = colorOf(state.board[i]) === state.turn ? i : null;   // first click: pick up your own piece\n  render();\n});\n\n$('new').onclick = () => {\n  state = fromFen(START_FEN);\n  selected = null;\n  lastMove = null;\n  busy = false;\n  render();\n};",
+    "go": "render();"
+   }
+  },
+  {
+   "title": "Faster and smarter, with levels",
+   "body": "Two improvements make the search much stronger, then levels make it fun for everyone.\n\n**Move ordering.** Alpha-beta prunes most when the best move is tried first. A good guess: captures of valuable pieces by cheap ones (a pawn taking a queen) come first. This is called MVV-LVA, \"most valuable victim, least valuable attacker\". `ordered()` sorts the moves by that score before searching.\n\n**Quiescence search.** If the search stops right after \"my queen takes your knight\", it thinks it's a knight ahead, without seeing that a pawn takes the queen back. `quiesce()` keeps searching **captures only** at the end until the position is quiet. Its first line, the \"stand pat\" score, says that you don't have to capture: if the position is already good enough, stop.\n\n**Levels.**\n\n| Level | Looks ahead | Randomness |\n|---|---|---|\n| Easy | 1 move | picks any move within 150 centipawns of the best |\n| Medium | 2 moves | within 40 |\n| Hard | 3 moves | always the best |\n\n`chooseMove()` keeps every move whose score is close enough to the best and picks one at random, so easier levels make human-like slips.\n\n### Try it\n\nChoose Hard from the Opponent menu and play. It takes a moment longer and punishes loose pieces. Easy sometimes misses a free capture.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "a quiescence search",
+     "test": "/function\\s+quiesce\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "moves are ordered before searching",
+     "test": "/const\\s+ordered\\s*=/"
+    },
+    {
+     "pane": "js",
+     "label": "three levels",
+     "test": "/const\\s+LEVELS\\s*=/"
+    },
+    {
+     "pane": "js",
+     "label": "the menu picks the level",
+     "test": "/chooseMove\\(\\s*state\\s*,\\s*\\$\\(\\s*['\"]level['\"]\\s*\\)\\.value\\s*\\)/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why search captures past the depth limit in quiesce()?",
+     "options": [
+      "To find checkmates",
+      "So the computer doesn't stop in the middle of a trade and misjudge who is ahead",
+      "Captures are the only legal moves at the end"
+     ],
+     "answer": 1,
+     "why": "Stopping after \"queen takes knight\" without seeing \"pawn takes queen\" is called the horizon effect."
+    },
+    {
+     "q": "How does Easy play weaker on purpose?",
+     "options": [
+      "It looks one move ahead and picks randomly among moves within 150 centipawns of the best",
+      "It skips its turn sometimes",
+      "It plays illegal moves"
+     ],
+     "answer": 0,
+     "why": "A shallow search plus a little randomness makes believable mistakes instead of silly ones."
+    }
+   ],
+   "session": 2,
+   "minutes": 15,
+   "js": {
+    "ai": "// Piece values in centipawns: 100 = one pawn.\nconst VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0 };\nconst MATE = 100000;\n\n// Piece-square tables, from white's side of the board (index 0 = a8): bonuses for good squares.\n// Knights love the center, pawns want to advance, the king wants to hide behind its pawns.\nconst PST = {\n  P: [0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5,\n      0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],\n  N: [-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30, -30,5,15,20,20,15,5,-30,\n      -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30, -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],\n  B: [-20,-10,-10,-10,-10,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,10,10,5,0,-10, -10,5,5,10,10,5,5,-10,\n      -10,0,10,10,10,10,0,-10, -10,10,10,10,10,10,10,-10, -10,5,0,0,0,0,5,-10, -20,-10,-10,-10,-10,-10,-10,-20],\n  R: [0,0,0,0,0,0,0,0, 5,10,10,10,10,10,10,5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5,\n      -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 0,0,0,5,5,0,0,0],\n  Q: [-20,-10,-10,-5,-5,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,5,5,5,0,-10, -5,0,5,5,5,5,0,-5,\n      0,0,5,5,5,5,0,-5, -10,5,5,5,5,5,0,-10, -10,0,5,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],\n  K: [-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30,\n      -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10, 20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20],\n};\n\n// The score in centipawns from white's point of view: positive is good for white.\nfunction evaluate(s) {\n  let score = 0;\n  s.board.forEach((p, i) => {\n    if (!p) return;\n    const type = p.toUpperCase();\n    const white = colorOf(p) === 'w';\n    const pst = PST[type][white ? i : (7 - Math.floor(i / 8)) * 8 + (i % 8)];   // mirror the table for black\n    score += (white ? 1 : -1) * (VALUES[type] + pst);\n  });\n  return score;\n}\n\n// Captures of valuable pieces by cheap ones first (MVV-LVA). Good moves first = far more pruning.\nconst orderScore = (m) => (m.captured ? 10 * VALUES[m.captured.toUpperCase()] - VALUES[m.piece.toUpperCase()] : 0) + (m.promotion ? 800 : 0);\nconst ordered = (moves) => moves.sort((a, b) => orderScore(b) - orderScore(a));\n\n// At the end of the search, keep looking at captures only, so we never stop in the middle of a trade.\nfunction quiesce(s, alpha, beta, depth = 0) {\n  const stand = (s.turn === 'w' ? 1 : -1) * evaluate(s);\n  if (stand >= beta) return beta;\n  if (stand > alpha) alpha = stand;\n  if (depth > 6) return alpha;\n  for (const m of ordered(legalMoves(s).filter((x) => x.captured || x.promotion))) {\n    const score = -quiesce(makeMove(s, m), -beta, -alpha, depth + 1);\n    if (score >= beta) return beta;\n    if (score > alpha) alpha = score;\n  }\n  return alpha;\n}\n\n// Negamax with alpha-beta: the best score the side to move can force, looking `depth` moves ahead.\nfunction search(s, depth, alpha = -Infinity, beta = Infinity, ply = 0) {\n  const moves = legalMoves(s);\n  if (!moves.length) return inCheck(s) ? -MATE + ply : 0;   // checkmated (sooner is worse) or stalemate\n  if (depth === 0) return quiesce(s, alpha, beta);\n  for (const m of ordered(moves)) {\n    const score = -search(makeMove(s, m), depth - 1, -beta, -alpha, ply + 1);\n    if (score >= beta) return beta;\n    if (score > alpha) alpha = score;\n  }\n  return alpha;\n}\n\n// Every legal move with its score, best first.\nfunction rankMoves(s, depth) {\n  return ordered(legalMoves(s))\n    .map((move) => ({ move, score: -search(makeMove(s, move), depth - 1, -Infinity, Infinity, 1) }))\n    .sort((a, b) => b.score - a.score);\n}\n\n// Easier levels look less far ahead and sometimes pick a slightly worse move on purpose.\nconst LEVELS = {\n  easy: { depth: 1, randomness: 150 },\n  medium: { depth: 2, randomness: 40 },\n  hard: { depth: 3, randomness: 0 },\n};\n\nfunction chooseMove(s, level = 'medium', rand = Math.random) {\n  const { depth, randomness } = LEVELS[level] ?? LEVELS.medium;\n  const ranked = rankMoves(s, depth);\n  const choices = ranked.filter((r) => r.score >= ranked[0].score - randomness);\n  return choices[Math.floor(rand() * choices.length)].move;\n}",
+    "ui": "const $ = (id) => document.getElementById(id);\nconst GLYPH = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' };   // solid shapes; CSS colors them white or black\nlet state = fromFen(START_FEN);\nlet selected = null;           // the square you clicked first\nlet lastMove = null;\nlet busy = false;              // true while the computer is thinking\n\n// The moves the piece on square i can really make.\nconst movesFrom = (i) => legalMoves(state).filter((m) => m.from === i);\n\nfunction render() {\n  const board = $('board');\n  board.innerHTML = '';\n  const targets = selected === null ? [] : movesFrom(selected);\n  const checkSq = inCheck(state) ? kingSquare(state, state.turn) : -1;\n  for (let i = 0; i < 64; i++) {\n    const sq = document.createElement('button');\n    const dark = (Math.floor(i / 8) + (i % 8)) % 2 === 1;\n    sq.className = `sq ${dark ? 'dark' : 'light'}`;\n    sq.dataset.i = i;\n    sq.setAttribute('aria-label', sqName(i) + (state.board[i] ? ` ${state.board[i]}` : ''));\n    if (lastMove && (i === lastMove.from || i === lastMove.to)) sq.classList.add('last');\n    if (i === selected) sq.classList.add('sel');\n    const t = targets.find((m) => m.to === i);\n    if (t) sq.classList.add(t.captured ? 'capture' : 'target');\n    if (i === checkSq) sq.classList.add('check');\n    const p = state.board[i];\n    if (p) sq.innerHTML = `<span class=\"piece ${colorOf(p)}\">${GLYPH[p.toUpperCase()]}</span>`;\n    board.appendChild(sq);\n  }\n  const result = gameResult(state);\n  if (result.over) {\n    $('status').textContent = result.winner ? `${result.winner === 'w' ? 'White' : 'Black'} wins by ${result.reason}!` : `Draw by ${result.reason}.`;\n  } else if (busy) {\n    $('status').textContent = 'Computer is thinking…';\n  } else {\n    $('status').textContent = `${state.turn === 'w' ? 'White' : 'Black'} to move${inCheck(state) ? ' (check!)' : ''}`;\n  }\n  return result;\n}\n\nfunction play(move) {\n  state = makeMove(state, move);\n  lastMove = move;\n  selected = null;\n  const result = render();\n  if (!result.over && state.turn === 'b') {   // you play white; the computer answers\n    busy = true;\n    render();\n    setTimeout(computerMove, 30);              // let the page show \"thinking…\" first\n  }\n}\n\nfunction computerMove() {\n  const move = chooseMove(state, $('level').value);\n  busy = false;\n  play(move);\n}\n\n$('board').addEventListener('click', (e) => {\n  const sq = e.target.closest('.sq');\n  if (!sq || busy || state.turn !== 'w') return;\n  const i = Number(sq.dataset.i);\n  // second click: a move to this square? (a promoting pawn always becomes a queen here)\n  const move = selected === null ? null : movesFrom(selected).find((m) => m.to === i && (!m.promotion || 'Qq'.includes(m.promotion)));\n  if (move) return play(move);\n  selected = colorOf(state.board[i]) === state.turn ? i : null;   // first click: pick up your own piece\n  render();\n});\n\n$('new').onclick = () => {\n  state = fromFen(START_FEN);\n  selected = null;\n  lastMove = null;\n  busy = false;\n  render();\n};"
    }
   }
  ],
