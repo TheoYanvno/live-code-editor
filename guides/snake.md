@@ -1277,3 +1277,85 @@ quiz: Why add `SIZE` before taking the remainder?
 - [ ] It makes the board bigger
 - [ ] Modulo only works on numbers over 20
 why: JavaScript keeps the sign in `%`, so `(x + SIZE) % SIZE` handles both edges with one formula.
+
+## Session: How the real project is built
+
+## Step: How the real project is organized
+time: 10
+
+kind: read
+
+You've built the whole game in one JavaScript pane, and it works. My real [Snake repository](https://github.com/TheoYanvno/snake-game) has the same features, organized for a bigger project. This step is read-only: no code to write, just how and why it's different.
+
+### 1. The rules live in their own file, with no DOM code
+
+`src/game.js` has `createGame()`, `turn()`, `step()` and `placeFood()`, but it never touches the page or the canvas. Instead of global variables, everything about one game is in a single object:
+
+```js
+export function createGame({ width = 20, height = 20, rand = Math.random, walls = true } = {}) {
+  // ...
+  return { width, height, snake, direction: 'right', queue: [], food: null, score: 0, over: false, walls, rand };
+}
+
+step(game);   // the function gets the game passed in instead of reading globals
+```
+
+`src/app.js` does the drawing, keys, swipes and buttons, and calls those functions. This split means the rules can run **outside a browser**, which makes the next part possible.
+
+### 2. The rules are tested automatically
+
+`test/game.test.js` uses Node's built-in test runner (`node --test`) to check 13 rules, including the tail edge case from step 8:
+
+```js
+test('moving into the cell the tail is leaving is allowed', () => {
+  const g = createGame({ width: 10, height: 10 });
+  g.snake = [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 6, y: 6 }, { x: 5, y: 6 }];
+  g.direction = 'down';
+  g.food = { x: 0, y: 0 };
+  assert.equal(step(g), 'move');
+});
+```
+
+Because the game is a plain object, a test can set up any situation directly (here, a snake curled into a square) instead of playing until it happens.
+
+The food position is normally random, and random tests are flaky. So `createGame()` takes a `rand` option, and the tests pass a fake one that always returns the same number: `const fixed = (n) => () => n;`. Every run is identical. Handing a function the things it depends on, instead of letting it reach for `Math.random()` itself, is called **dependency injection**.
+
+### 3. Small polish you can add yourself
+
+- The canvas is drawn at the screen's real pixel density (`devicePixelRatio`) so it stays sharp on phones.
+- The game pauses when you switch to another tab (the `visibilitychange` event).
+- The best score is saved separately for each speed level, with walls on and off, and the Speed menu is locked during a game so a best score can't be set on Slow and kept on Fast.
+
+quiz: Why does the real project keep the rules in `src/game.js` with no DOM code?
+- [ ] Files with DOM code are slower
+- [x] The rules can run outside a browser, so they can be tested automatically
+- [ ] GitHub Pages requires it
+why: With no page or canvas code, Node's test runner can run the rules directly.
+
+quiz: Why does `createGame()` take a `rand` option?
+- [ ] To make food appear faster
+- [x] Tests can pass a fake random function, so every run is the same
+- [ ] So players can pick the food's color
+why: Random tests are flaky. A fixed `rand` makes the food land in the same place on every run.
+
+## Finish
+
+### What you learned
+
+- Drawing on a `<canvas>` with a 2D context, in cells instead of pixels
+- Keeping **data** (the snake array) separate from **drawing** (the `draw()` function)
+- Moving by adding a head and removing the tail, and growing by skipping the removal
+- A game loop with `setTimeout`, and why `start()` clears the old timer
+- Keyboard and swipe input that share one `turn()` function
+- Random placement with a `Set` of taken cells
+- Edge cases (the tail), return values that tell the loop what happened, and `try/catch` around storage
+- How a real project splits rules from the page so the rules can be tested
+
+### Challenges
+
+1. **Pause:** make the P key pause and resume (hint: `clearTimeout(timer)` to pause, `tick()` to resume).
+2. **Obstacles:** add a few rock cells that end the game when hit. Where would you check for them?
+3. **Golden food:** every fifth food is gold and worth 3 points.
+4. **Two players:** a second snake controlled with W/A/S/D while the first uses the arrows.
+
+Compare your finished game with the [live version](https://theoyanvno.github.io/snake-game/) and the [source code](https://github.com/TheoYanvno/snake-game).
