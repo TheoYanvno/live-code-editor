@@ -1,0 +1,386 @@
+// Built from guides/calendar.md by scripts/build-guides.js. Edit the guide, not this file.
+export default {
+ "id": "calendar",
+ "title": "Task Calendar",
+ "goals": [
+  "Work with dates without the time-zone bug that moves tasks a day",
+  "Draw a month grid and move between months",
+  "Write repeat rules (daily, weekdays, weekly, monthly) and check off one day of a series",
+  "Calculate US holidays from their rules, including Easter and observed days",
+  "Theme the page with CSS custom properties",
+  "Export to other calendars with .ics files and Google Calendar links"
+ ],
+ "prereqs": [
+  "HTML, CSS and JavaScript basics (functions, arrays, objects)",
+  "Template literals and array map, filter and sort",
+  "Forms and click events"
+ ],
+ "sessions": [
+  {
+   "title": "Dates and a month grid",
+   "from": 0,
+   "to": 2
+  },
+  {
+   "title": "Repeats and checking off",
+   "from": 3,
+   "to": 5
+  }
+ ],
+ "start": {
+  "html": {
+   "page": ""
+  },
+  "css": {
+   "base": ""
+  },
+  "js": {
+   "dates": "",
+   "tasks": "",
+   "holidays": "",
+   "themes": "",
+   "ui": "",
+   "go": ""
+  }
+ },
+ "steps": [
+  {
+   "title": "Dates you can trust",
+   "body": "Welcome! In this guide you'll rebuild my [Task Calendar](https://theoyanvno.github.io/task-calendar/): a to-do list and a calendar in one, with repeating tasks, drag-and-drop rescheduling, US holidays, a theme for every month, and buttons that send tasks to your phone's calendar or to Google for email reminders.\n\nA calendar app lives or dies by its dates, and JavaScript dates have a famous trap:\n\n```svg new Date(\"2026-10-28\") is midnight UTC, which is still October 27 in the Americas\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 430 150\" font-family=\"sans-serif\"><rect x=\"10\" y=\"15\" width=\"200\" height=\"56\" rx=\"6\" fill=\"#fde2e1\" stroke=\"#b91c1c\"/><text x=\"110\" y=\"35\" text-anchor=\"middle\" font-size=\"11\">new Date('2026-10-28')</text><text x=\"110\" y=\"51\" text-anchor=\"middle\" font-size=\"11\">= midnight UTC</text><text x=\"110\" y=\"65\" text-anchor=\"middle\" font-size=\"11\" fill=\"#b91c1c\">= Oct 27, 8 PM in Florida</text><rect x=\"220\" y=\"15\" width=\"200\" height=\"56\" rx=\"6\" fill=\"#bbf7d0\" stroke=\"#15803d\"/><text x=\"320\" y=\"35\" text-anchor=\"middle\" font-size=\"11\">new Date(2026, 9, 28)</text><text x=\"320\" y=\"51\" text-anchor=\"middle\" font-size=\"11\">= midnight where you are</text><text x=\"320\" y=\"65\" text-anchor=\"middle\" font-size=\"11\" fill=\"#15803d\">= Oct 28, always</text><text x=\"215\" y=\"100\" text-anchor=\"middle\" font-size=\"12\">store the day as text: '2026-10-28'</text><text x=\"215\" y=\"118\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">and only turn it into a Date with the local (year, month, day) form</text><text x=\"215\" y=\"136\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">keys also sort and compare correctly as plain strings</text></svg>\n```\n\n`new Date('2026-10-28')` treats the text as **midnight UTC**. In Florida that's 8 PM on October 27, so a task saved for the 28th shows up on the 27th. The fix used throughout this app:\n\n- Store every day as a **key**, a string like `'2026-10-28'`.\n- Turn a key into a `Date` only with `new Date(year, month - 1, day)`, which is **local** midnight. (Months count from 0 in this form, hence `m - 1`.)\n- Turn a `Date` back into a key with `toKey()`, using the local `getFullYear()`, `getMonth()` and `getDate()`.\n\nKeys have a bonus: because the year comes first and the parts are zero-padded, they **sort and compare as plain strings**. `'2026-10-09' < '2026-10-10'` is true, so \"is this before today?\" is just `<`.\n\n| Helper | Example | Result |\n|---|---|---|\n| `toKey(new Date(2026, 9, 28))` | a Date | `'2026-10-28'` |\n| `fromKey('2026-10-28')` | a key | local midnight, Oct 28 |\n| `addDays('2026-12-30', 3)` | key + days | `'2027-01-02'` |\n| `daysBetween('2026-03-07', '2026-03-09')` | two keys | `2` |\n\n`addDays` lets `setDate()` do the hard part: setting day 33 of December rolls into January by itself. `daysBetween` divides milliseconds by the length of a day and **rounds**, because the day the clocks change is 23 or 25 hours long.\n\n### Try it\n\nThe page shows today's date, and the console shows the three examples from the `go` block.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "dates become keys",
+     "test": "/const\\s+toKey\\s*=/"
+    },
+    {
+     "pane": "js",
+     "label": "keys become local dates",
+     "test": "/new\\s+Date\\(\\s*y\\s*,\\s*m\\s*-\\s*1\\s*,\\s*d\\s*\\)/",
+     "hint": "return new Date(y, m - 1, d);"
+    },
+    {
+     "pane": "js",
+     "label": "add days to a key",
+     "test": "/const\\s+addDays\\s*=/"
+    },
+    {
+     "pane": "js",
+     "label": "days between two keys, rounded",
+     "test": "/Math\\.round\\(.*\\/\\s*86400000\\s*\\)/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why store days as \"2026-10-28\" strings instead of Date objects?",
+     "options": [
+      "Strings use less memory",
+      "A string has no time or time zone, so it can never slide to the day before, and it sorts as text",
+      "Date objects can't be saved"
+     ],
+     "answer": 1,
+     "why": "The day stays the day; only display code turns it into a local Date."
+    },
+    {
+     "q": "Why does daysBetween() round the result?",
+     "options": [
+      "To handle the 23- or 25-hour day when daylight saving time changes",
+      "Because dates are random",
+      "To make weeks start on Sunday"
+     ],
+     "answer": 0,
+     "why": "Without rounding, March 7 to March 9 could come out as 1.958 days."
+    }
+   ],
+   "session": 0,
+   "minutes": 15,
+   "html": {
+    "page": "<header class=\"top\">\n  <div class=\"brand\"><h1>Task Calendar</h1> <span id=\"themeBadge\" class=\"theme-badge\" hidden></span></div>\n  <div class=\"top-actions\">\n    <button id=\"seasonal\" aria-label=\"Monthly holiday theme\" aria-pressed=\"true\">🎨</button>\n    <button id=\"export\">Export .ics</button>\n  </div>\n</header>\n\n<main class=\"layout\">\n  <section class=\"calendar\" aria-label=\"Calendar\">\n    <div class=\"cal-head\">\n      <button id=\"prevMonth\" aria-label=\"Previous month\">‹</button>\n      <h2 id=\"monthLabel\"></h2>\n      <button id=\"nextMonth\" aria-label=\"Next month\">›</button>\n      <button id=\"today\">Today</button>\n    </div>\n    <div class=\"weekdays\"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>\n    <div id=\"grid\" class=\"grid\"></div>\n    <p class=\"hint\">Tip: drag a task onto another day to reschedule it. Shaded days are federal holidays.</p>\n  </section>\n\n  <aside class=\"side\">\n    <section class=\"panel\">\n      <h2 id=\"dayLabel\"></h2>\n      <p id=\"dayHoliday\" class=\"day-holiday\" hidden></p>\n      <form id=\"addForm\" class=\"add\">\n        <input id=\"title\" placeholder=\"Add a task…\" required autocomplete=\"off\" aria-label=\"Task title\">\n        <input id=\"location\" placeholder=\"📍 Location (optional)\" autocomplete=\"off\" maxlength=\"200\" aria-label=\"Location (optional)\">\n        <div class=\"row\">\n          <input id=\"time\" type=\"time\" aria-label=\"Time (optional)\">\n          <select id=\"priority\" aria-label=\"Priority\">\n            <option value=\"high\">High</option><option value=\"medium\" selected>Medium</option><option value=\"low\">Low</option>\n          </select>\n          <select id=\"repeat\" aria-label=\"Repeat\">\n            <option value=\"none\">Once</option><option value=\"daily\">Daily</option><option value=\"weekdays\">Weekdays</option>\n            <option value=\"weekly\">Weekly</option><option value=\"monthly\">Monthly</option>\n          </select>\n          <button class=\"primary\">Add</button>\n        </div>\n      </form>\n      <ul id=\"dayTasks\" class=\"tasks\"></ul>\n    </section>\n\n    <section class=\"panel\" aria-labelledby=\"monthTitle\">\n      <h2 id=\"monthTitle\">This month</h2>\n      <div id=\"overdueAlert\"></div>\n      <ul id=\"monthList\" class=\"highlights\"></ul>\n    </section>\n  </aside>\n</main>"
+   },
+   "css": {
+    "base": "* { box-sizing: border-box; }\n:root { --accent: #2563eb; --tint: #e8eefc; --bg: #f6f7fb; --panel: #fff; --text: #1c2430; --muted: #6b7280; --line: #e2e6ee; }\n/* The monthly theme: JavaScript sets --theme-accent, --theme-tint and --theme-pattern, and adds the .seasonal class */\n:root.seasonal { --accent: var(--theme-accent); --tint: var(--theme-tint); }\n:root.seasonal .calendar { background-color: var(--tint); background-image: var(--theme-pattern); }\nbody { margin: 0; font: 15px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--text); }\nbutton, input, select { font: inherit; }\n[hidden] { display: none !important; }\n\n.top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--accent); color: #fff; }\n.top h1 { margin: 0; font-size: 1.25rem; display: inline; }\n.theme-badge { margin-left: 8px; font-size: 13px; background: rgba(255, 255, 255, .22); border-radius: 999px; padding: 2px 8px; }\n.top button { background: rgba(255, 255, 255, .15); color: #fff; border: 1px solid rgba(255, 255, 255, .45); border-radius: 8px; padding: 6px 10px; cursor: pointer; }\n\n.layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }\n@media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }\n.calendar, .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }\n.cal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }\n.cal-head h2 { flex: 1; margin: 0; font-size: 1.1rem; }\n.cal-head button, .panel button { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 4px 10px; cursor: pointer; }\n\n/* 7 equal columns: minmax(0, 1fr) lets long task names shrink instead of stretching the grid */\n.weekdays, .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }\n.weekdays span { text-align: center; font-size: 12px; color: var(--muted); }\n.day { min-height: 82px; display: flex; flex-direction: column; gap: 2px; padding: 4px; text-align: left; border: 1px solid var(--line);\n       border-radius: 8px; background: rgba(255, 255, 255, .9); cursor: pointer; overflow: hidden; color: var(--text); }\n.day .num { font-weight: 600; font-size: 13px; align-self: flex-start; }\n.day.other { opacity: .45; }\n.day.today .num { background: var(--accent); color: #fff; border-radius: 999px; padding: 0 6px; }\n.day.selected { outline: 2px solid var(--accent); }\n.day.dayoff { background: #eef2f7; }\n.day.drop { outline: 2px dashed var(--accent); }\n.holiday { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.chip { font-size: 11px; border-radius: 4px; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; }\n.chip.high { background: #dc2626; } .chip.medium { background: #b45309; } .chip.low { background: #15803d; }\n.chip.done { opacity: .45; text-decoration: line-through; }\n.chip[draggable=\"true\"] { cursor: grab; }\n.more { font-size: 11px; color: var(--muted); }\n.hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }\n\n.side { display: grid; gap: 16px; align-content: start; }\n.panel h2 { margin: 0 0 8px; font-size: 1.05rem; }\n.day-holiday { margin: 0 0 8px; font-size: 13px; }\n.add { display: grid; gap: 6px; margin-bottom: 10px; }\n.add input, .add select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }\n.add .row { display: flex; flex-wrap: wrap; gap: 6px; }\n.panel .primary { background: var(--accent); color: #fff; border-color: var(--accent); }\n.tasks, .highlights { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }\n.task { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-left: 4px solid var(--line); background: var(--bg); border-radius: 6px; }\n.task.high { border-color: #dc2626; } .task.medium { border-color: #b45309; } .task.low { border-color: #15803d; }\n.task.completed .t-title { text-decoration: line-through; opacity: .55; }\n.t-body { flex: 1; display: grid; min-width: 0; }\n.t-meta, .t-loc { font-size: 12px; color: var(--muted); }\n.mail { font-size: 12px; white-space: nowrap; color: var(--accent); }\n.del { border: 0 !important; background: none !important; color: var(--muted); }\n.empty { color: var(--muted); font-size: 14px; }\n.overdue { margin-bottom: 8px; color: #b91c1c; }\n.hl { width: 100%; display: flex; gap: 10px; text-align: left; align-items: center; }\n.hl-date { display: grid; text-align: center; font-size: 11px; color: var(--muted); min-width: 34px; }\n.hl-date b { font-size: 16px; color: var(--text); }\n.hl-body { display: grid; }\n.hl-meta { font-size: 12px; color: var(--muted); }\n.hl.past { opacity: .55; }"
+   },
+   "js": {
+    "dates": "// Days are stored as 'YYYY-MM-DD' strings in LOCAL time (\"keys\").\nconst toKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;\n\nconst fromKey = (key) => {\n  const [y, m, d] = key.split('-').map(Number);\n  return new Date(y, m - 1, d);               // the (year, month, day) form is local time; months count from 0\n};\n\nconst addDays = (key, n) => {\n  const d = fromKey(key);\n  d.setDate(d.getDate() + n);                 // setDate rolls over months and years by itself\n  return toKey(d);\n};\n\n// Rounded, because the day daylight saving time changes is 23 or 25 hours long.\nconst daysBetween = (a, b) => Math.round((fromKey(b) - fromKey(a)) / 86400000);",
+    "ui": "const $ = (id) => document.getElementById(id);\nconst todayKey = toKey(new Date());\nconst fmtDay = (key, opts = { weekday: 'long', month: 'long', day: 'numeric' }) => fromKey(key).toLocaleDateString(undefined, opts);\n\n$('dayLabel').textContent = `Today, ${fmtDay(todayKey)}`;",
+    "go": "console.log(addDays('2026-12-30', 3));                 // 2027-01-02: rolls into the next year\nconsole.log(daysBetween('2026-03-07', '2026-03-09'));   // 2, even across the daylight saving change\nconsole.log('2026-10-09' < '2026-10-10');               // true: keys sort as plain text"
+   }
+  },
+  {
+   "title": "A month on the screen",
+   "body": "A month view always shows **6 rows of 7 days**, starting on a Sunday. Most months need only 5 rows, but always using 42 squares means the calendar never changes height when you go to the next month.\n\n```svg October 2026 starts on a Thursday, so the grid begins on Sunday, September 27\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 420 160\" font-family=\"sans-serif\"><text x=\"36\" y=\"14\" text-anchor=\"middle\" font-size=\"10\" fill=\"#475569\">S</text><text x=\"68\" y=\"14\" text-anchor=\"middle\" font-size=\"10\" fill=\"#475569\">M</text><text x=\"100\" y=\"14\" text-anchor=\"middle\" font-size=\"10\" fill=\"#475569\">T</text><text x=\"132\" y=\"14\" text-anchor=\"middle\" font-size=\"10\" fill=\"#475569\">W</text><text x=\"164\" y=\"14\" text-anchor=\"middle\" font-size=\"10\" fill=\"#475569\">T</text><text x=\"196\" y=\"14\" text-anchor=\"middle\" font-size=\"10\" fill=\"#475569\">F</text><text x=\"228\" y=\"14\" text-anchor=\"middle\" font-size=\"10\" fill=\"#475569\">S</text><rect x=\"20\" y=\"20\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"35\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">27</text><rect x=\"52\" y=\"20\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"67\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">28</text><rect x=\"84\" y=\"20\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"99\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">29</text><rect x=\"116\" y=\"20\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"131\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">30</text><rect x=\"148\" y=\"20\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"163\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">1</text><rect x=\"180\" y=\"20\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"195\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">2</text><rect x=\"212\" y=\"20\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"227\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">3</text><rect x=\"20\" y=\"42\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"35\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">4</text><rect x=\"52\" y=\"42\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"67\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">5</text><rect x=\"84\" y=\"42\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"99\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">6</text><rect x=\"116\" y=\"42\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"131\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">7</text><rect x=\"148\" y=\"42\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"163\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">8</text><rect x=\"180\" y=\"42\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"195\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">9</text><rect x=\"212\" y=\"42\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"227\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">10</text><rect x=\"20\" y=\"64\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"35\" y=\"78\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">11</text><rect x=\"52\" y=\"64\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"67\" y=\"78\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">12</text><rect x=\"84\" y=\"64\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"99\" y=\"78\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">13</text><rect x=\"116\" y=\"64\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"131\" y=\"78\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">14</text><rect x=\"148\" y=\"64\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"163\" y=\"78\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">15</text><rect x=\"180\" y=\"64\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"195\" y=\"78\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">16</text><rect x=\"212\" y=\"64\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"227\" y=\"78\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">17</text><rect x=\"20\" y=\"86\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"35\" y=\"100\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">18</text><rect x=\"52\" y=\"86\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"67\" y=\"100\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">19</text><rect x=\"84\" y=\"86\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"99\" y=\"100\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">20</text><rect x=\"116\" y=\"86\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"131\" y=\"100\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">21</text><rect x=\"148\" y=\"86\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"163\" y=\"100\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">22</text><rect x=\"180\" y=\"86\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"195\" y=\"100\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">23</text><rect x=\"212\" y=\"86\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"227\" y=\"100\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">24</text><rect x=\"20\" y=\"108\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"35\" y=\"122\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">25</text><rect x=\"52\" y=\"108\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"67\" y=\"122\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">26</text><rect x=\"84\" y=\"108\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"99\" y=\"122\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">27</text><rect x=\"116\" y=\"108\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"131\" y=\"122\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">28</text><rect x=\"148\" y=\"108\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"163\" y=\"122\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">29</text><rect x=\"180\" y=\"108\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"195\" y=\"122\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">30</text><rect x=\"212\" y=\"108\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#ffffff\" stroke=\"#cbd5e1\"/><text x=\"227\" y=\"122\" text-anchor=\"middle\" font-size=\"10\" fill=\"#1c2430\">31</text><rect x=\"20\" y=\"130\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"35\" y=\"144\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">1</text><rect x=\"52\" y=\"130\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"67\" y=\"144\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">2</text><rect x=\"84\" y=\"130\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"99\" y=\"144\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">3</text><rect x=\"116\" y=\"130\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"131\" y=\"144\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">4</text><rect x=\"148\" y=\"130\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"163\" y=\"144\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">5</text><rect x=\"180\" y=\"130\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"195\" y=\"144\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">6</text><rect x=\"212\" y=\"130\" width=\"30\" height=\"20\" rx=\"3\" fill=\"#f1f5f9\" stroke=\"#cbd5e1\"/><text x=\"227\" y=\"144\" text-anchor=\"middle\" font-size=\"10\" fill=\"#94a3b8\">7</text><text x=\"260\" y=\"40\" font-size=\"11\">October 2026</text><text x=\"260\" y=\"58\" font-size=\"11\" fill=\"#475569\">the 1st is a Thursday,</text><text x=\"260\" y=\"72\" font-size=\"11\" fill=\"#475569\">so the grid starts on</text><text x=\"260\" y=\"86\" font-size=\"11\" fill=\"#475569\">Sunday, September 27</text><text x=\"260\" y=\"114\" font-size=\"11\" fill=\"#475569\">always 6 rows x 7 = 42 days,</text><text x=\"260\" y=\"128\" font-size=\"11\" fill=\"#475569\">so the page never jumps</text><text x=\"260\" y=\"142\" font-size=\"11\" fill=\"#475569\">between months</text></svg>\n```\n\n`monthGrid(year, month)` finds the first of the month, and `getDay()` says which weekday it is (0 = Sunday). Going back that many days gives the Sunday the grid starts on: `new Date(year, month, 1 - first.getDay())`. Day numbers below 1 roll back into the previous month, just like day 33 rolls forward. Then `Array.from({ length: 42 }, …)` makes the 42 keys.\n\n`renderCalendar()` turns each key into a `<button>` with classes:\n\n| Class | When |\n|---|---|\n| `other` | the day belongs to the month before or after (shown faded) |\n| `today` | it's today (the number gets a colored circle) |\n| `selected` | it's the day you clicked |\n\nThe ‹ and › buttons change `viewMonth`, wrapping from 0 (January) to 11 (December) and changing the year. Clicking a faded day selects it and jumps to its month. **Today** comes back to the present.\n\n### Try it\n\nGo forward to a month that starts on a Saturday: the grid still has 42 days. Click a faded day.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "a monthGrid() function",
+     "test": "/function\\s+monthGrid\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "always 42 days",
+     "test": "/length:\\s*42/"
+    },
+    {
+     "pane": "js",
+     "label": "days outside the month are marked",
+     "test": "/d\\.getMonth\\(\\)\\s*!==\\s*viewMonth/"
+    },
+    {
+     "pane": "js",
+     "label": "the previous-month button",
+     "test": "/\\$\\(\\s*['\"]prevMonth['\"]\\s*\\)\\.onclick/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why always draw 42 days, even for a month that fits in 35?",
+     "options": [
+      "Six rows always fit any month, and the calendar keeps the same height from month to month",
+      "Browsers need 42 buttons",
+      "To show more holidays"
+     ],
+     "answer": 0,
+     "why": "A month can span up to 6 weeks; a fixed grid avoids the page jumping."
+    },
+    {
+     "q": "What does new Date(2026, 9, 1 - 4) give, if October 1 is a Thursday (getDay() = 4)?",
+     "options": [
+      "October 4",
+      "Sunday, September 27",
+      "An error"
+     ],
+     "answer": 1,
+     "why": "Day -3 of October rolls back into September: the 30th minus 3 is the 27th."
+    }
+   ],
+   "session": 0,
+   "minutes": 15,
+   "js": {
+    "dates": "// Days are stored as 'YYYY-MM-DD' strings in LOCAL time (\"keys\").\nconst toKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;\n\nconst fromKey = (key) => {\n  const [y, m, d] = key.split('-').map(Number);\n  return new Date(y, m - 1, d);               // the (year, month, day) form is local time; months count from 0\n};\n\nconst addDays = (key, n) => {\n  const d = fromKey(key);\n  d.setDate(d.getDate() + n);                 // setDate rolls over months and years by itself\n  return toKey(d);\n};\n\n// Rounded, because the day daylight saving time changes is 23 or 25 hours long.\nconst daysBetween = (a, b) => Math.round((fromKey(b) - fromKey(a)) / 86400000);\n\n// The 42 days (6 weeks x 7) shown for a month, starting on the Sunday on or before the 1st.\nfunction monthGrid(year, month) {\n  const first = new Date(year, month, 1);\n  const start = new Date(year, month, 1 - first.getDay());\n  return Array.from({ length: 42 }, (_, i) => toKey(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)));\n}",
+    "ui": "const $ = (id) => document.getElementById(id);\nconst todayKey = toKey(new Date());\nconst fmtDay = (key, opts = { weekday: 'long', month: 'long', day: 'numeric' }) => fromKey(key).toLocaleDateString(undefined, opts);\nlet selected = todayKey;\nlet viewYear = new Date().getFullYear();\nlet viewMonth = new Date().getMonth();\n\nfunction renderCalendar() {\n  $('monthLabel').textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });\n  $('grid').innerHTML = monthGrid(viewYear, viewMonth).map((key) => {\n    const d = fromKey(key);\n    const cls = ['day', d.getMonth() !== viewMonth && 'other', key === todayKey && 'today', key === selected && 'selected'].filter(Boolean).join(' ');\n    return `<button class=\"${cls}\" data-key=\"${key}\" aria-label=\"${fmtDay(key)}\"><span class=\"num\">${d.getDate()}</span></button>`;\n  }).join('');\n}\n\nfunction renderDay() {\n  $('dayLabel').textContent = selected === todayKey ? `Today, ${fmtDay(selected, { month: 'long', day: 'numeric' })}` : fmtDay(selected);\n}\n\nfunction render() { renderCalendar(); renderDay(); }\n\n// Clicking a day selects it (and moves to its month if it's one of the grey days)\n$('grid').addEventListener('click', (e) => {\n  const day = e.target.closest('.day');\n  if (!day) return;\n  selected = day.dataset.key;\n  const d = fromKey(selected);\n  if (d.getMonth() !== viewMonth) { viewMonth = d.getMonth(); viewYear = d.getFullYear(); }\n  render();\n});\n$('prevMonth').onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); };\n$('nextMonth').onclick = () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); };\n$('today').onclick = () => { selected = todayKey; viewYear = new Date().getFullYear(); viewMonth = new Date().getMonth(); render(); };",
+    "go": "render();"
+   }
+  },
+  {
+   "title": "Tasks on the calendar",
+   "body": "A task is a plain object made by `newTask()`, which checks its input: a task needs a title and a date in key form (`/^\\d{4}-\\d{2}-\\d{2}$/`), and the title is trimmed. Every task gets a random id.\n\n| Field | Example |\n|---|---|\n| `title` | `'Call the dentist'` |\n| `date` | `'2026-10-28'` |\n| `time` | `'09:30'` or `''` |\n| `priority` | `'high'`, `'medium'` or `'low'` |\n| `repeat` | `'none'` (for now) |\n\n`tasksOn(tasks, key)` returns the tasks on one day, **sorted**: by time first (tasks without a time get `'99'`, so they go last), then by priority. The `||` in the sort means \"if the times are equal, compare priorities\".\n\nThe calendar shows up to three colored **chips** per day (red, amber, green for priority) and \"+2 more\" after that. The side panel lists the selected day's tasks, and the form adds a task to that day.\n\n**Escaping.** Task titles are typed by people and go into HTML, so `esc()` replaces `<`, `>`, `&` and `\"` with their HTML codes. Without it, a task called `<img src=x onerror=alert(1)>` would run code. Every bit of user text goes through `esc()`.\n\n### Try it\n\nClick a day, add a few tasks with different times and priorities, and watch them sort. Add a task called `<b>bold?</b>`: it shows the tags as text instead of making anything bold.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "a newTask() function",
+     "test": "/function\\s+newTask\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "a task needs a title",
+     "test": "/throw\\s+new\\s+Error\\(\\s*['\"]A task needs a title['\"]/"
+    },
+    {
+     "pane": "js",
+     "label": "tasks on a day, sorted",
+     "test": "/function\\s+tasksOn\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "user text is escaped",
+     "test": "/const\\s+esc\\s*=/"
+    },
+    {
+     "pane": "js",
+     "label": "the add form",
+     "test": "/\\$\\(\\s*['\"]addForm['\"]\\s*\\)\\.addEventListener\\(\\s*['\"]submit['\"]/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why do tasks without a time sort as \"99\"?",
+     "options": [
+      "\"99\" comes after every real time like \"09:30\" or \"23:00\", so untimed tasks go to the end of the day",
+      "99 means high priority",
+      "Times are stored as numbers"
+     ],
+     "answer": 0,
+     "why": "Comparing strings, \"99\" is larger than any \"HH:MM\" time."
+    },
+    {
+     "q": "What would happen without esc() if someone named a task <img src=x onerror=alert(1)>?",
+     "options": [
+      "Nothing, it's just text",
+      "The browser would make it a real image tag and run the onerror code",
+      "The task would be deleted"
+     ],
+     "answer": 1,
+     "why": "innerHTML turns text into elements; escaping keeps it as text."
+    }
+   ],
+   "session": 0,
+   "minutes": 20,
+   "js": {
+    "tasks": "// Task logic: plain functions on plain objects, no page code.\nfunction newTask({ title, date, time = '', priority = 'medium', repeat = 'none' }) {\n  if (!title?.trim()) throw new Error('A task needs a title');\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) throw new Error('A task needs a date');\n  const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;\n  return { id, title: title.trim(), date, time, priority, repeat, done: false, doneDates: [] };\n}\n\n// For now a task is on exactly one day. Repeats come next session.\nconst occursOn = (task, key) => key === task.date;\n\n// All tasks on one day: by time (tasks without one last), then priority.\nfunction tasksOn(tasks, key) {\n  const rank = { high: 0, medium: 1, low: 2 };\n  return tasks\n    .filter((t) => occursOn(t, key))\n    .sort((a, b) => (a.time || '99').localeCompare(b.time || '99') || rank[a.priority] - rank[b.priority]);\n}",
+    "ui": "const $ = (id) => document.getElementById(id);\n// Task titles are typed by people, so escape them before they go into HTML.\nconst esc = (s) => s.replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));\nconst todayKey = toKey(new Date());\nconst fmtDay = (key, opts = { weekday: 'long', month: 'long', day: 'numeric' }) => fromKey(key).toLocaleDateString(undefined, opts);\nlet selected = todayKey;\nlet viewYear = new Date().getFullYear();\nlet viewMonth = new Date().getMonth();\nconst fmtTime = (t) => (t ? new Date(`2000-01-01T${t}`).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');\n\n// A few example tasks so the calendar isn't empty\nlet tasks = [\n  newTask({ title: 'Welcome! Click a day to add tasks', date: todayKey, priority: 'high' }),\n  newTask({ title: 'Morning workout', date: todayKey, time: '06:30', priority: 'low' }),\n  newTask({ title: 'Review the week', date: addDays(todayKey, 2) }),\n];\n\nfunction renderCalendar() {\n  $('monthLabel').textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });\n  $('grid').innerHTML = monthGrid(viewYear, viewMonth).map((key) => {\n    const d = fromKey(key);\n    const list = tasksOn(tasks, key);\n    const cls = ['day', d.getMonth() !== viewMonth && 'other', key === todayKey && 'today', key === selected && 'selected'].filter(Boolean).join(' ');\n    const chips = list.slice(0, 3).map((t) => `<span class=\"chip ${t.priority}\" data-id=\"${t.id}\">${esc(t.title)}</span>`).join('');\n    const more = list.length > 3 ? `<span class=\"more\">+${list.length - 3} more</span>` : '';\n    return `<button class=\"${cls}\" data-key=\"${key}\" aria-label=\"${fmtDay(key)}, ${list.length} tasks\"><span class=\"num\">${d.getDate()}</span>${chips}${more}</button>`;\n  }).join('');\n}\n\nconst taskItem = (t, key) => `\n  <li class=\"task ${t.priority}\">\n    <span class=\"t-body\">\n      <span class=\"t-title\">${esc(t.title)}</span>\n      <span class=\"t-meta\">${[fmtTime(t.time)].filter(Boolean).join(' · ')}</span>\n    </span>\n  </li>`;\n\nfunction renderDay() {\n  $('dayLabel').textContent = selected === todayKey ? `Today, ${fmtDay(selected, { month: 'long', day: 'numeric' })}` : fmtDay(selected);\n  $('dayTasks').innerHTML = tasksOn(tasks, selected).map((t) => taskItem(t, selected)).join('')\n    || '<li class=\"empty\">No tasks. Enjoy the free time, or add one above.</li>';\n}\n\nfunction render() { renderCalendar(); renderDay(); }\n\n// Clicking a day selects it (and moves to its month if it's one of the grey days)\n$('grid').addEventListener('click', (e) => {\n  const day = e.target.closest('.day');\n  if (!day) return;\n  selected = day.dataset.key;\n  const d = fromKey(selected);\n  if (d.getMonth() !== viewMonth) { viewMonth = d.getMonth(); viewYear = d.getFullYear(); }\n  render();\n});\n$('prevMonth').onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); };\n$('nextMonth').onclick = () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); };\n$('today').onclick = () => { selected = todayKey; viewYear = new Date().getFullYear(); viewMonth = new Date().getMonth(); render(); };\n\n$('addForm').addEventListener('submit', (e) => {\n  e.preventDefault();\n  tasks.push(newTask({ title: $('title').value, date: selected, time: $('time').value, priority: $('priority').value }));\n  $('title').value = ''; $('time').value = '';\n  render();\n});"
+   }
+  },
+  {
+   "title": "Repeating tasks",
+   "body": "A repeating task is stored **once**, with its first date and a rule. `occursOn(task, key)` answers \"is it on this day?\" for any day, so nothing has to be copied for every week of the year:\n\n| Rule | On this day if… |\n|---|---|\n| `daily` | the day is on or after the start |\n| `weekdays` | `getDay()` is 1-5 (Monday to Friday) |\n| `weekly` | the days since the start divide by 7: `daysBetween(start, key) % 7 === 0` |\n| `monthly` | the day of the month matches the start's |\n| `none` | it's exactly the task's date |\n\nEvery rule starts with `if (key < task.date) return false`: nothing repeats backward in time. That works because keys compare as strings.\n\n**The 31st.** A monthly task started on January 31 has no 31st in February, April, June, September or November. So the rule compares with `Math.min(start day, last day of this month)`, and the task lands on the last day of short months:\n\n```svg A monthly task on the 31st lands on the last day of shorter months\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 430 130\" font-family=\"sans-serif\"><rect x=\"15\" y=\"20\" width=\"92\" height=\"56\" rx=\"6\" fill=\"#bbf7d0\" stroke=\"#475569\"/><text x=\"61\" y=\"40\" text-anchor=\"middle\" font-size=\"12\" font-weight=\"700\">Jan</text><text x=\"61\" y=\"58\" text-anchor=\"middle\" font-size=\"11\">the 31st</text><rect x=\"117\" y=\"20\" width=\"92\" height=\"56\" rx=\"6\" fill=\"#fef9c3\" stroke=\"#475569\"/><text x=\"163\" y=\"40\" text-anchor=\"middle\" font-size=\"12\" font-weight=\"700\">Feb</text><text x=\"163\" y=\"58\" text-anchor=\"middle\" font-size=\"11\">the 28th (last day)</text><rect x=\"219\" y=\"20\" width=\"92\" height=\"56\" rx=\"6\" fill=\"#bbf7d0\" stroke=\"#475569\"/><text x=\"265\" y=\"40\" text-anchor=\"middle\" font-size=\"12\" font-weight=\"700\">Mar</text><text x=\"265\" y=\"58\" text-anchor=\"middle\" font-size=\"11\">the 31st</text><rect x=\"321\" y=\"20\" width=\"92\" height=\"56\" rx=\"6\" fill=\"#fef9c3\" stroke=\"#475569\"/><text x=\"367\" y=\"40\" text-anchor=\"middle\" font-size=\"12\" font-weight=\"700\">Apr</text><text x=\"367\" y=\"58\" text-anchor=\"middle\" font-size=\"11\">the 30th (last day)</text><text x=\"215\" y=\"100\" text-anchor=\"middle\" font-size=\"12\">a monthly task started on January 31</text><text x=\"215\" y=\"118\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">Math.min(start day, last day of this month) keeps it in every month</text></svg>\n```\n\n`new Date(year, month + 1, 0)` is the trick for \"last day of this month\": day 0 of next month is the day before its 1st.\n\nThe form's Repeat menu now sets the rule, and the task list shows \"Every week\", \"Weekdays\" and so on.\n\n### Try it\n\nAdd a weekly task: it appears on the same weekday every week as you click ›. Add a monthly task on the 31st and go to November.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "weekdays only",
+     "test": "/case\\s+['\"]weekdays['\"]/"
+    },
+    {
+     "pane": "js",
+     "label": "every 7 days",
+     "test": "/daysBetween\\(\\s*task\\.date\\s*,\\s*key\\s*\\)\\s*%\\s*7\\s*===\\s*0/"
+    },
+    {
+     "pane": "js",
+     "label": "the 31st fits short months",
+     "test": "/Math\\.min\\(\\s*start\\.getDate\\(\\)\\s*,\\s*lastDay\\s*\\)/"
+    },
+    {
+     "pane": "js",
+     "label": "the form sets the repeat rule",
+     "test": "/repeat:\\s*\\$\\(\\s*['\"]repeat['\"]\\s*\\)\\.value/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why is a repeating task stored once with a rule, instead of a copy for every day?",
+     "options": [
+      "A daily task would need endless copies; a rule answers for any day, past or future",
+      "Copies can't be sorted",
+      "Rules are faster to type"
+     ],
+     "answer": 0,
+     "why": "occursOn() works out each day on demand, so a series never runs out."
+    },
+    {
+     "q": "What is new Date(2026, 2, 0)?",
+     "options": [
+      "March 1",
+      "February 28, 2026: day 0 of March is the last day of February",
+      "An invalid date"
+     ],
+     "answer": 1,
+     "why": "Day 0 rolls back one day from the 1st, which gives the last day of the month before."
+    }
+   ],
+   "session": 1,
+   "minutes": 20,
+   "js": {
+    "tasks": "// Task logic: plain functions on plain objects, no page code.\nfunction newTask({ title, date, time = '', priority = 'medium', repeat = 'none' }) {\n  if (!title?.trim()) throw new Error('A task needs a title');\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) throw new Error('A task needs a date');\n  const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;\n  return { id, title: title.trim(), date, time, priority, repeat, done: false, doneDates: [] };\n}\n\n// Does a (possibly repeating) task fall on this day? Keys compare correctly as strings.\nfunction occursOn(task, key) {\n  if (key < task.date) return false;\n  switch (task.repeat) {\n    case 'daily': return true;\n    case 'weekdays': {\n      const day = fromKey(key).getDay();\n      return day > 0 && day < 6;\n    }\n    case 'weekly': return daysBetween(task.date, key) % 7 === 0;\n    case 'monthly': {\n      const start = fromKey(task.date);\n      const d = fromKey(key);\n      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();   // day 0 of next month = last day of this one\n      return d.getDate() === Math.min(start.getDate(), lastDay);                  // the 31st becomes the 30th or 28th in short months\n    }\n    default: return key === task.date;\n  }\n}\n\n// All tasks on one day: by time (tasks without one last), then priority.\nfunction tasksOn(tasks, key) {\n  const rank = { high: 0, medium: 1, low: 2 };\n  return tasks\n    .filter((t) => occursOn(t, key))\n    .sort((a, b) => (a.time || '99').localeCompare(b.time || '99') || rank[a.priority] - rank[b.priority]);\n}",
+    "ui": "const $ = (id) => document.getElementById(id);\n// Task titles are typed by people, so escape them before they go into HTML.\nconst esc = (s) => s.replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));\nconst todayKey = toKey(new Date());\nconst fmtDay = (key, opts = { weekday: 'long', month: 'long', day: 'numeric' }) => fromKey(key).toLocaleDateString(undefined, opts);\nlet selected = todayKey;\nlet viewYear = new Date().getFullYear();\nlet viewMonth = new Date().getMonth();\nconst fmtTime = (t) => (t ? new Date(`2000-01-01T${t}`).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');\nconst repeatLabel = { daily: 'Every day', weekdays: 'Weekdays', weekly: 'Every week', monthly: 'Every month' };\n\n// A few example tasks so the calendar isn't empty\nlet tasks = [\n  newTask({ title: 'Welcome! Click a day to add tasks', date: todayKey, priority: 'high' }),\n  newTask({ title: 'Morning workout', date: todayKey, time: '06:30', repeat: 'weekdays', priority: 'low' }),\n  newTask({ title: 'Review the week', date: addDays(todayKey, 2), repeat: 'weekly' }),\n];\n\nfunction renderCalendar() {\n  $('monthLabel').textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });\n  $('grid').innerHTML = monthGrid(viewYear, viewMonth).map((key) => {\n    const d = fromKey(key);\n    const list = tasksOn(tasks, key);\n    const cls = ['day', d.getMonth() !== viewMonth && 'other', key === todayKey && 'today', key === selected && 'selected'].filter(Boolean).join(' ');\n    const chips = list.slice(0, 3).map((t) => `<span class=\"chip ${t.priority}\" data-id=\"${t.id}\">${esc(t.title)}</span>`).join('');\n    const more = list.length > 3 ? `<span class=\"more\">+${list.length - 3} more</span>` : '';\n    return `<button class=\"${cls}\" data-key=\"${key}\" aria-label=\"${fmtDay(key)}, ${list.length} tasks\"><span class=\"num\">${d.getDate()}</span>${chips}${more}</button>`;\n  }).join('');\n}\n\nconst taskItem = (t, key) => `\n  <li class=\"task ${t.priority}\">\n    <span class=\"t-body\">\n      <span class=\"t-title\">${esc(t.title)}</span>\n      <span class=\"t-meta\">${[fmtTime(t.time), repeatLabel[t.repeat]].filter(Boolean).join(' · ')}</span>\n    </span>\n  </li>`;\n\nfunction renderDay() {\n  $('dayLabel').textContent = selected === todayKey ? `Today, ${fmtDay(selected, { month: 'long', day: 'numeric' })}` : fmtDay(selected);\n  $('dayTasks').innerHTML = tasksOn(tasks, selected).map((t) => taskItem(t, selected)).join('')\n    || '<li class=\"empty\">No tasks. Enjoy the free time, or add one above.</li>';\n}\n\nfunction render() { renderCalendar(); renderDay(); }\n\n// Clicking a day selects it (and moves to its month if it's one of the grey days)\n$('grid').addEventListener('click', (e) => {\n  const day = e.target.closest('.day');\n  if (!day) return;\n  selected = day.dataset.key;\n  const d = fromKey(selected);\n  if (d.getMonth() !== viewMonth) { viewMonth = d.getMonth(); viewYear = d.getFullYear(); }\n  render();\n});\n$('prevMonth').onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); };\n$('nextMonth').onclick = () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); };\n$('today').onclick = () => { selected = todayKey; viewYear = new Date().getFullYear(); viewMonth = new Date().getMonth(); render(); };\n\n$('addForm').addEventListener('submit', (e) => {\n  e.preventDefault();\n  tasks.push(newTask({ title: $('title').value, date: selected, time: $('time').value, priority: $('priority').value, repeat: $('repeat').value }));\n  $('title').value = ''; $('time').value = ''; $('repeat').value = 'none';\n  render();\n});"
+   }
+  },
+  {
+   "title": "Done, one day at a time",
+   "body": "Checking off a one-time task is easy: flip `done`. But checking off today's workout shouldn't check off tomorrow's. So repeating tasks keep a list of **done days** instead:\n\n| Task | Stored as done | `isDone(task, key)` |\n|---|---|---|\n| one-time | `done: true` | `task.done` |\n| repeating | `doneDates: ['2026-10-26', '2026-10-27']` | `task.doneDates.includes(key)` |\n\n`toggle(task, key)` adds or removes that day using a `Set` (so a day can't be listed twice), then turns it back into a sorted array. `tasksOn()` now adds `completed` to each task for that day and sorts unfinished tasks first.\n\nEach task in the list gets a checkbox and a ✕. Instead of a listener on every one, a single `change` listener and a single `click` listener on the whole `document` read `data-toggle` and `data-del` from whatever was clicked. Deleting a repeating task removes the whole series, so it asks first.\n\n**Overdue.** `overdue()` finds unfinished one-time tasks from before today. They show at the top of the \"This month\" panel in a `<details>` box that can be folded away.\n\n### Try it\n\nCheck off today's workout, then click tomorrow: it's not done there. Add a task for last week and leave it unchecked: it's overdue.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "a toggle() function",
+     "test": "/function\\s+toggle\\s*\\(/"
+    },
+    {
+     "pane": "js",
+     "label": "one day of a series at a time",
+     "test": "/set\\.has\\(\\s*key\\s*\\)\\s*\\?\\s*set\\.delete\\(\\s*key\\s*\\)\\s*:\\s*set\\.add\\(\\s*key\\s*\\)/"
+    },
+    {
+     "pane": "js",
+     "label": "overdue tasks",
+     "test": "/const\\s+overdue\\s*=/"
+    },
+    {
+     "pane": "js",
+     "label": "checkboxes in the task list",
+     "test": "/data-toggle=/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why does a repeating task keep doneDates instead of a single done flag?",
+     "options": [
+      "So checking off one day doesn't check off every other day of the series",
+      "Flags can't be saved",
+      "To count how many times it repeats"
+     ],
+     "answer": 0,
+     "why": "Each day of a series is done or not on its own."
+    },
+    {
+     "q": "Why use one change listener on the document instead of one per checkbox?",
+     "options": [
+      "The list is redrawn after every change, and one listener keeps working for every new checkbox",
+      "Checkboxes can't have listeners",
+      "It's required by <details>"
+     ],
+     "answer": 0,
+     "why": "That's event delegation: the listener reads data-toggle from whatever element changed."
+    }
+   ],
+   "session": 1,
+   "minutes": 15,
+   "js": {
+    "tasks": "// Task logic: plain functions on plain objects, no page code.\nfunction newTask({ title, date, time = '', priority = 'medium', repeat = 'none' }) {\n  if (!title?.trim()) throw new Error('A task needs a title');\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) throw new Error('A task needs a date');\n  const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;\n  return { id, title: title.trim(), date, time, priority, repeat, done: false, doneDates: [] };\n}\n\n// Does a (possibly repeating) task fall on this day? Keys compare correctly as strings.\nfunction occursOn(task, key) {\n  if (key < task.date) return false;\n  switch (task.repeat) {\n    case 'daily': return true;\n    case 'weekdays': {\n      const day = fromKey(key).getDay();\n      return day > 0 && day < 6;\n    }\n    case 'weekly': return daysBetween(task.date, key) % 7 === 0;\n    case 'monthly': {\n      const start = fromKey(task.date);\n      const d = fromKey(key);\n      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();   // day 0 of next month = last day of this one\n      return d.getDate() === Math.min(start.getDate(), lastDay);                  // the 31st becomes the 30th or 28th in short months\n    }\n    default: return key === task.date;\n  }\n}\n\n// A repeating task is done one day at a time, so it keeps a list of done days.\nconst isDone = (task, key) => (task.repeat !== 'none' ? task.doneDates.includes(key) : task.done);\n\n// All tasks on one day, each marked completed or not: unfinished first, then by time, then priority.\nfunction tasksOn(tasks, key) {\n  const rank = { high: 0, medium: 1, low: 2 };\n  return tasks\n    .filter((t) => occursOn(t, key))\n    .map((t) => ({ ...t, completed: isDone(t, key) }))\n    .sort((a, b) => a.completed - b.completed || (a.time || '99').localeCompare(b.time || '99') || rank[a.priority] - rank[b.priority]);\n}\n\n// Checks a task off (or back on). A repeating task changes only the day you clicked.\nfunction toggle(task, key) {\n  if (task.repeat !== 'none') {\n    const set = new Set(task.doneDates);\n    set.has(key) ? set.delete(key) : set.add(key);\n    return { ...task, doneDates: [...set].sort() };\n  }\n  return { ...task, done: !task.done };\n}\n\n// Unfinished one-time tasks from before today, oldest first.\nconst overdue = (tasks, today) =>\n  tasks.filter((t) => t.repeat === 'none' && !t.done && t.date < today).sort((a, b) => a.date.localeCompare(b.date));",
+    "ui": "const $ = (id) => document.getElementById(id);\n// Task titles are typed by people, so escape them before they go into HTML.\nconst esc = (s) => s.replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));\nconst todayKey = toKey(new Date());\nconst fmtDay = (key, opts = { weekday: 'long', month: 'long', day: 'numeric' }) => fromKey(key).toLocaleDateString(undefined, opts);\nlet selected = todayKey;\nlet viewYear = new Date().getFullYear();\nlet viewMonth = new Date().getMonth();\nconst fmtTime = (t) => (t ? new Date(`2000-01-01T${t}`).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');\nconst repeatLabel = { daily: 'Every day', weekdays: 'Weekdays', weekly: 'Every week', monthly: 'Every month' };\n\n// A few example tasks so the calendar isn't empty\nlet tasks = [\n  newTask({ title: 'Welcome! Click a day to add tasks', date: todayKey, priority: 'high' }),\n  newTask({ title: 'Morning workout', date: todayKey, time: '06:30', repeat: 'weekdays', priority: 'low' }),\n  newTask({ title: 'Review the week', date: addDays(todayKey, 2), repeat: 'weekly' }),\n];\n\nfunction renderCalendar() {\n  $('monthLabel').textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });\n  $('grid').innerHTML = monthGrid(viewYear, viewMonth).map((key) => {\n    const d = fromKey(key);\n    const list = tasksOn(tasks, key);\n    const cls = ['day', d.getMonth() !== viewMonth && 'other', key === todayKey && 'today', key === selected && 'selected'].filter(Boolean).join(' ');\n    const chips = list.slice(0, 3).map((t) => `<span class=\"chip ${t.priority}${t.completed ? ' done' : ''}\" data-id=\"${t.id}\">${esc(t.title)}</span>`).join('');\n    const more = list.length > 3 ? `<span class=\"more\">+${list.length - 3} more</span>` : '';\n    return `<button class=\"${cls}\" data-key=\"${key}\" aria-label=\"${fmtDay(key)}, ${list.length} tasks\"><span class=\"num\">${d.getDate()}</span>${chips}${more}</button>`;\n  }).join('');\n}\n\nconst taskItem = (t, key, showDate = false) => `\n  <li class=\"task ${t.priority}${t.completed ? ' completed' : ''}\">\n    <input type=\"checkbox\" ${t.completed ? 'checked' : ''} data-toggle=\"${t.id}\" data-key=\"${key}\" aria-label=\"Done: ${esc(t.title)}\">\n    <span class=\"t-body\">\n      <span class=\"t-title\">${esc(t.title)}</span>\n      <span class=\"t-meta\">${[showDate && fmtDay(key, { weekday: 'short', month: 'short', day: 'numeric' }), fmtTime(t.time), repeatLabel[t.repeat]].filter(Boolean).join(' · ')}</span>\n    </span>\n    <button class=\"del\" data-del=\"${t.id}\" aria-label=\"Delete ${esc(t.title)}\">✕</button>\n  </li>`;\n\nfunction renderDay() {\n  $('dayLabel').textContent = selected === todayKey ? `Today, ${fmtDay(selected, { month: 'long', day: 'numeric' })}` : fmtDay(selected);\n  $('dayTasks').innerHTML = tasksOn(tasks, selected).map((t) => taskItem(t, selected)).join('')\n    || '<li class=\"empty\">No tasks. Enjoy the free time, or add one above.</li>';\n}\n\nfunction renderMonth() {\n  const late = overdue(tasks, todayKey);\n  $('overdueAlert').innerHTML = late.length ? `<details class=\"overdue\" open>\n    <summary>⚠️ ${late.length} overdue task${late.length > 1 ? 's' : ''}</summary>\n    <ul class=\"tasks\">${late.map((t) => taskItem({ ...t, completed: false }, t.date, true)).join('')}</ul></details>` : '';\n}\n\nfunction render() { renderCalendar(); renderDay(); renderMonth(); }\n\n// Clicking a day selects it (and moves to its month if it's one of the grey days)\n$('grid').addEventListener('click', (e) => {\n  const day = e.target.closest('.day');\n  if (!day) return;\n  selected = day.dataset.key;\n  const d = fromKey(selected);\n  if (d.getMonth() !== viewMonth) { viewMonth = d.getMonth(); viewYear = d.getFullYear(); }\n  render();\n});\n$('prevMonth').onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); };\n$('nextMonth').onclick = () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); };\n$('today').onclick = () => { selected = todayKey; viewYear = new Date().getFullYear(); viewMonth = new Date().getMonth(); render(); };\n\n$('addForm').addEventListener('submit', (e) => {\n  e.preventDefault();\n  tasks.push(newTask({ title: $('title').value, date: selected, time: $('time').value, priority: $('priority').value, repeat: $('repeat').value }));\n  $('title').value = ''; $('time').value = ''; $('repeat').value = 'none';\n  render();\n});\n\n// One listener for every checkbox and ✕, wherever they are on the page\ndocument.addEventListener('change', (e) => {\n  const id = e.target.dataset.toggle;\n  if (!id) return;\n  tasks = tasks.map((t) => (t.id === id ? toggle(t, e.target.dataset.key) : t));\n  render();\n});\ndocument.addEventListener('click', (e) => {\n  const id = e.target.dataset.del;\n  if (!id) return;\n  const task = tasks.find((t) => t.id === id);\n  if (task.repeat !== 'none' && !confirm(`\"${task.title}\" repeats. Delete every occurrence?`)) return;\n  tasks = tasks.filter((t) => t.id !== id);\n  render();\n});"
+   }
+  },
+  {
+   "title": "Drag a task to another day",
+   "body": "Rescheduling should be as easy as moving a sticky note. The browser's **Drag and Drop API** does most of the work:\n\n| Event | On | What the app does |\n|---|---|---|\n| `dragstart` | the chip | remember the task's id |\n| `dragover` | a day | `preventDefault()` to say \"you may drop here\", and highlight the day |\n| `dragleave` | a day | remove the highlight |\n| `drop` | a day | change the task's `date` to that day's key and redraw |\n\nOnly **one-time** tasks get `draggable=\"true\"`. Dragging one day of a weekly series would raise questions the app can't answer well (\"move just this one, or every week?\"), so repeating tasks stay put.\n\nAll four listeners sit on the grid, not on the chips and days, because the grid's contents are redrawn constantly. `e.target.closest('.day')` finds the day under the pointer, whatever part of it the event started on.\n\nThe move itself is one line: `tasks.map((t) => (t.id === dragId ? { ...t, date: day.dataset.key } : t))`, a new array with a changed copy of one task.\n\n### Try it\n\nDrag a one-time task's chip to another day. Try to drag the weekly task: it won't move.",
+   "checks": [
+    {
+     "pane": "js",
+     "label": "dragging starts",
+     "test": "/addEventListener\\(\\s*['\"]dragstart['\"]/"
+    },
+    {
+     "pane": "js",
+     "label": "days accept drops",
+     "test": "/addEventListener\\(\\s*['\"]dragover['\"]/"
+    },
+    {
+     "pane": "js",
+     "label": "dropping moves the task",
+     "test": "/addEventListener\\(\\s*['\"]drop['\"]/"
+    },
+    {
+     "pane": "js",
+     "label": "only one-time tasks can be dragged",
+     "test": "/draggable=\"true\"/"
+    }
+   ],
+   "quiz": [
+    {
+     "q": "Why must the dragover handler call preventDefault()?",
+     "options": [
+      "To stop the page scrolling",
+      "By default, elements refuse drops; preventDefault() marks the day as a drop target",
+      "To delete the task"
+     ],
+     "answer": 1,
+     "why": "It feels backward, but that's how the Drag and Drop API works."
+    },
+    {
+     "q": "Why can't repeating tasks be dragged?",
+     "options": [
+      "It's unclear whether to move one day or the whole series, so the app avoids guessing",
+      "Repeating tasks have no id",
+      "Drag and drop only works on Mondays"
+     ],
+     "answer": 0,
+     "why": "Keeping it to one-time tasks makes drag-and-drop always mean one thing."
+    }
+   ],
+   "session": 1,
+   "minutes": 15,
+   "js": {
+    "ui": "const $ = (id) => document.getElementById(id);\n// Task titles are typed by people, so escape them before they go into HTML.\nconst esc = (s) => s.replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));\nconst todayKey = toKey(new Date());\nconst fmtDay = (key, opts = { weekday: 'long', month: 'long', day: 'numeric' }) => fromKey(key).toLocaleDateString(undefined, opts);\nlet selected = todayKey;\nlet viewYear = new Date().getFullYear();\nlet viewMonth = new Date().getMonth();\nconst fmtTime = (t) => (t ? new Date(`2000-01-01T${t}`).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');\nconst repeatLabel = { daily: 'Every day', weekdays: 'Weekdays', weekly: 'Every week', monthly: 'Every month' };\n\n// A few example tasks so the calendar isn't empty\nlet tasks = [\n  newTask({ title: 'Welcome! Click a day to add tasks', date: todayKey, priority: 'high' }),\n  newTask({ title: 'Morning workout', date: todayKey, time: '06:30', repeat: 'weekdays', priority: 'low' }),\n  newTask({ title: 'Review the week', date: addDays(todayKey, 2), repeat: 'weekly' }),\n];\n\nfunction renderCalendar() {\n  $('monthLabel').textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });\n  $('grid').innerHTML = monthGrid(viewYear, viewMonth).map((key) => {\n    const d = fromKey(key);\n    const list = tasksOn(tasks, key);\n    const cls = ['day', d.getMonth() !== viewMonth && 'other', key === todayKey && 'today', key === selected && 'selected'].filter(Boolean).join(' ');\n    const chips = list.slice(0, 3).map((t) => `<span class=\"chip ${t.priority}${t.completed ? ' done' : ''}\"${t.repeat === 'none' ? ' draggable=\"true\"' : ''} data-id=\"${t.id}\">${esc(t.title)}</span>`).join('');\n    const more = list.length > 3 ? `<span class=\"more\">+${list.length - 3} more</span>` : '';\n    return `<button class=\"${cls}\" data-key=\"${key}\" aria-label=\"${fmtDay(key)}, ${list.length} tasks\"><span class=\"num\">${d.getDate()}</span>${chips}${more}</button>`;\n  }).join('');\n}\n\nconst taskItem = (t, key, showDate = false) => `\n  <li class=\"task ${t.priority}${t.completed ? ' completed' : ''}\">\n    <input type=\"checkbox\" ${t.completed ? 'checked' : ''} data-toggle=\"${t.id}\" data-key=\"${key}\" aria-label=\"Done: ${esc(t.title)}\">\n    <span class=\"t-body\">\n      <span class=\"t-title\">${esc(t.title)}</span>\n      <span class=\"t-meta\">${[showDate && fmtDay(key, { weekday: 'short', month: 'short', day: 'numeric' }), fmtTime(t.time), repeatLabel[t.repeat]].filter(Boolean).join(' · ')}</span>\n    </span>\n    <button class=\"del\" data-del=\"${t.id}\" aria-label=\"Delete ${esc(t.title)}\">✕</button>\n  </li>`;\n\nfunction renderDay() {\n  $('dayLabel').textContent = selected === todayKey ? `Today, ${fmtDay(selected, { month: 'long', day: 'numeric' })}` : fmtDay(selected);\n  $('dayTasks').innerHTML = tasksOn(tasks, selected).map((t) => taskItem(t, selected)).join('')\n    || '<li class=\"empty\">No tasks. Enjoy the free time, or add one above.</li>';\n}\n\nfunction renderMonth() {\n  const late = overdue(tasks, todayKey);\n  $('overdueAlert').innerHTML = late.length ? `<details class=\"overdue\" open>\n    <summary>⚠️ ${late.length} overdue task${late.length > 1 ? 's' : ''}</summary>\n    <ul class=\"tasks\">${late.map((t) => taskItem({ ...t, completed: false }, t.date, true)).join('')}</ul></details>` : '';\n}\n\nfunction render() { renderCalendar(); renderDay(); renderMonth(); }\n\n// Clicking a day selects it (and moves to its month if it's one of the grey days)\n$('grid').addEventListener('click', (e) => {\n  const day = e.target.closest('.day');\n  if (!day) return;\n  selected = day.dataset.key;\n  const d = fromKey(selected);\n  if (d.getMonth() !== viewMonth) { viewMonth = d.getMonth(); viewYear = d.getFullYear(); }\n  render();\n});\n$('prevMonth').onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); };\n$('nextMonth').onclick = () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); };\n$('today').onclick = () => { selected = todayKey; viewYear = new Date().getFullYear(); viewMonth = new Date().getMonth(); render(); };\n\n$('addForm').addEventListener('submit', (e) => {\n  e.preventDefault();\n  tasks.push(newTask({ title: $('title').value, date: selected, time: $('time').value, priority: $('priority').value, repeat: $('repeat').value }));\n  $('title').value = ''; $('time').value = ''; $('repeat').value = 'none';\n  render();\n});\n\n// One listener for every checkbox and ✕, wherever they are on the page\ndocument.addEventListener('change', (e) => {\n  const id = e.target.dataset.toggle;\n  if (!id) return;\n  tasks = tasks.map((t) => (t.id === id ? toggle(t, e.target.dataset.key) : t));\n  render();\n});\ndocument.addEventListener('click', (e) => {\n  const id = e.target.dataset.del;\n  if (!id) return;\n  const task = tasks.find((t) => t.id === id);\n  if (task.repeat !== 'none' && !confirm(`\"${task.title}\" repeats. Delete every occurrence?`)) return;\n  tasks = tasks.filter((t) => t.id !== id);\n  render();\n});\n\n// Drag and drop a one-time task onto another day to reschedule it\nlet dragId = null;\n$('grid').addEventListener('dragstart', (e) => { dragId = e.target.dataset.id; e.dataTransfer.effectAllowed = 'move'; });\n$('grid').addEventListener('dragover', (e) => {\n  const day = e.target.closest('.day');\n  if (day && dragId) { e.preventDefault(); day.classList.add('drop'); }   // preventDefault = \"you may drop here\"\n});\n$('grid').addEventListener('dragleave', (e) => e.target.closest('.day')?.classList.remove('drop'));\n$('grid').addEventListener('drop', (e) => {\n  const day = e.target.closest('.day');\n  if (!day || !dragId) return;\n  e.preventDefault();\n  tasks = tasks.map((t) => (t.id === dragId ? { ...t, date: day.dataset.key } : t));\n  dragId = null;\n  render();\n});"
+   }
+  }
+ ],
+ "finish": "### What you learned\n\n- Date keys that never shift a day, and why `new Date('2026-10-28')` does\n- A fixed 6 x 7 month grid and moving between months\n- Repeat rules worked out on demand, including the 31st in short months\n- Completing one day of a series with a set of done days\n- The Drag and Drop API and event delegation\n- Holidays from rules: nth weekdays, Easter, and observed days\n- Theming a whole page with CSS custom properties and an SVG data URL\n- Saving that survives blocked storage, `.ics` export with a Blob, and Google Calendar and Maps links built with `URLSearchParams`\n\n### Challenges\n\n1. **Dark mode:** add a 🌙 button that toggles a `.dark` class with darker values for the custom properties, and remember the choice.\n2. **Repeat until:** add an \"until\" date to repeating tasks and stop `occursOn()` after it.\n3. **Next 7 days:** a panel listing every day in the next week that has tasks (hint: `addDays` and `tasksOn` in a loop).\n4. **Keyboard:** move the selected day with the arrow keys (±1 day, ±7 days).\n5. **Contrast check:** write `contrast(a, b)` from the WCAG luminance formula and test every theme's accent against white.\n\nCompare your calendar with the [live version](https://theoyanvno.github.io/task-calendar/) and the [source code](https://github.com/TheoYanvno/task-calendar)."
+};
