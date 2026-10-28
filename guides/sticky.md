@@ -2115,6 +2115,51 @@ document.getElementById('firstNote').addEventListener('click', () => addNote());
 window.addEventListener('storage', (e) => { if (e.key === KEY) { notes = load(); keepFocus(render); } });
 ```
 
+## Session: How the real project is built
+
+## Step: From the browser to the Windows desktop
+time: 10
+kind: read
+
+You've now built the same notes that run in my [Sticky Notes demo](https://theoyanvno.github.io/sticky-notes/app/). The real project is also a **Windows app** made with **Electron**, and it shares almost all of this code:
+
+| File | What it does |
+|---|---|
+| `src/notes.js` | the rules you wrote: colors, the limit of three, positions, checklists |
+| `src/storage.js` | `normalize()`, plus crash-safe saving to a file |
+| `app/note-view.js` | `renderNote()`, `keepFocus()`: one note's look, shared by the desktop and the browser |
+| `app/app.js` | the browser demo: the desk, dragging, `localStorage` |
+| `main.js` | the Electron main process: one window per note, the tray icon, Ctrl+Shift+N, start with Windows |
+| `preload.cjs` | the only bridge between a note window and the main process |
+
+`src/` is plain JavaScript with no browser or Electron code, so the desktop app, the demo and the tests all use the same rules.
+
+**A window that's just a note.** On the desktop, each note is its own window with no frame and a see-through background, so only the note and its shadow show:
+
+```js
+const win = new BrowserWindow({
+  x: n.x, y: n.y, width: n.w + 2 * MARGIN, height: n.h + 2 * MARGIN,
+  title: label(n), icon: ICON, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
+  // Transparent windows can't be resized from their edges, so the note has its own corner grip (note:resize)
+  resizable: false, maximizable: false, fullscreenable: false,
+  show: false, skipTaskbar: true, webPreferences: secureWebPreferences,
+});
+```
+
+**Security.** Note pages run with `contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`, so a page can't touch files or run system commands. `preload.cjs` hands each page exactly five functions with `contextBridge` (get, save, new, delete, resize) and nothing else.
+
+**Who owns what.** The page owns what's written on a note; the window owns where it is. When a page saves, the main process takes only the text, checklist and color from it, and position and size come from the window's own move and resize events. Neither can overwrite the other with an old value.
+
+**Saving without ever losing a file.** The desktop app saves to `sticky-notes.json`, and a crash or power cut in the middle of writing could leave half a file. So it never writes over the real file directly:
+
+```svg Crash-safe saving: a temporary file, flushed, then renamed over the old one
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 428 100" font-family="sans-serif"><rect x="6" y="20" width="97" height="44" rx="6" fill="#e2e8f0" stroke="#475569"/><text x="54" y="38" text-anchor="middle" font-size="10">write</text><text x="54" y="52" text-anchor="middle" font-size="10">sticky-notes.json.tmp</text><line x1="103" y1="42" x2="111" y2="42" stroke="#475569" stroke-width="2"/><rect x="111" y="20" width="97" height="44" rx="6" fill="#fef9c3" stroke="#475569"/><text x="159" y="38" text-anchor="middle" font-size="10">flush it</text><text x="159" y="52" text-anchor="middle" font-size="10">to disk</text><line x1="208" y1="42" x2="216" y2="42" stroke="#475569" stroke-width="2"/><rect x="216" y="20" width="97" height="44" rx="6" fill="#ffedd5" stroke="#475569"/><text x="264" y="38" text-anchor="middle" font-size="10">copy old file</text><text x="264" y="52" text-anchor="middle" font-size="10">to .bak</text><line x1="313" y1="42" x2="321" y2="42" stroke="#475569" stroke-width="2"/><rect x="321" y="20" width="97" height="44" rx="6" fill="#bbf7d0" stroke="#475569"/><text x="369" y="38" text-anchor="middle" font-size="10">rename .tmp over</text><text x="369" y="52" text-anchor="middle" font-size="10">the old file</text><text x="214" y="88" text-anchor="middle" font-size="11" fill="#475569">a crash at any point leaves either the old file or the new one, never half of one</text></svg>
+```
+
+Renaming is atomic on the same disk: at any moment there's either the whole old file or the whole new one. If the main file is ever damaged anyway, the app loads `.bak` and keeps the damaged copy as `.corrupt` for inspection.
+
+**Tests.** Unit tests check the rules and saving with `node --test`. On GitHub Actions, an **end-to-end test** starts the real Electron app under a virtual screen, types in a note, makes a checklist, presses + up to the limit, deletes a note, restarts and checks what was saved. Then it builds the Windows installer.
+
 ## Finish
 
 ### What you learned
