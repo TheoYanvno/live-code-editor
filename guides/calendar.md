@@ -932,6 +932,481 @@ $('grid').addEventListener('drop', (e) => {
 });
 ```
 
+## Session: Holidays and themes
+
+## Step: US holidays from their rules
+time: 20
+
+The calendar knows every US holiday for **any year**, without a list that would need updating. Each holiday is a rule:
+
+| Kind | Examples | How |
+|---|---|---|
+| fixed date | Independence Day, Halloween, Christmas | `new Date(year, 6, 4)` |
+| nth weekday | MLK Day (3rd Monday of January), Thanksgiving (4th Thursday of November) | `nthWeekday(year, month, weekday, n)` |
+| last weekday | Memorial Day (last Monday of May) | `nthWeekday(…, -1)` |
+| computed | Easter | the "anonymous Gregorian" algorithm |
+
+```svg Thanksgiving 2026: the first Thursday is the 5th, so the fourth is the 26th
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 140" font-family="sans-serif"><text x="36" y="14" text-anchor="middle" font-size="10" fill="#475569">S</text><text x="68" y="14" text-anchor="middle" font-size="10" fill="#475569">M</text><text x="100" y="14" text-anchor="middle" font-size="10" fill="#475569">T</text><text x="132" y="14" text-anchor="middle" font-size="10" fill="#475569">W</text><text x="164" y="14" text-anchor="middle" font-size="10" fill="#475569">T</text><text x="196" y="14" text-anchor="middle" font-size="10" fill="#475569">F</text><text x="228" y="14" text-anchor="middle" font-size="10" fill="#475569">S</text><rect x="20" y="20" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="35" y="34" text-anchor="middle" font-size="10">1</text><rect x="52" y="20" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="67" y="34" text-anchor="middle" font-size="10">2</text><rect x="84" y="20" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="99" y="34" text-anchor="middle" font-size="10">3</text><rect x="116" y="20" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="131" y="34" text-anchor="middle" font-size="10">4</text><rect x="148" y="20" width="30" height="20" rx="3" fill="#ffedd5" stroke="#cbd5e1"/><text x="163" y="34" text-anchor="middle" font-size="10">5</text><rect x="180" y="20" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="195" y="34" text-anchor="middle" font-size="10">6</text><rect x="212" y="20" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="227" y="34" text-anchor="middle" font-size="10">7</text><rect x="20" y="42" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="35" y="56" text-anchor="middle" font-size="10">8</text><rect x="52" y="42" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="67" y="56" text-anchor="middle" font-size="10">9</text><rect x="84" y="42" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="99" y="56" text-anchor="middle" font-size="10">10</text><rect x="116" y="42" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="131" y="56" text-anchor="middle" font-size="10">11</text><rect x="148" y="42" width="30" height="20" rx="3" fill="#ffedd5" stroke="#cbd5e1"/><text x="163" y="56" text-anchor="middle" font-size="10">12</text><rect x="180" y="42" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="195" y="56" text-anchor="middle" font-size="10">13</text><rect x="212" y="42" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="227" y="56" text-anchor="middle" font-size="10">14</text><rect x="20" y="64" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="35" y="78" text-anchor="middle" font-size="10">15</text><rect x="52" y="64" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="67" y="78" text-anchor="middle" font-size="10">16</text><rect x="84" y="64" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="99" y="78" text-anchor="middle" font-size="10">17</text><rect x="116" y="64" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="131" y="78" text-anchor="middle" font-size="10">18</text><rect x="148" y="64" width="30" height="20" rx="3" fill="#ffedd5" stroke="#cbd5e1"/><text x="163" y="78" text-anchor="middle" font-size="10">19</text><rect x="180" y="64" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="195" y="78" text-anchor="middle" font-size="10">20</text><rect x="212" y="64" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="227" y="78" text-anchor="middle" font-size="10">21</text><rect x="20" y="86" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="35" y="100" text-anchor="middle" font-size="10">22</text><rect x="52" y="86" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="67" y="100" text-anchor="middle" font-size="10">23</text><rect x="84" y="86" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="99" y="100" text-anchor="middle" font-size="10">24</text><rect x="116" y="86" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="131" y="100" text-anchor="middle" font-size="10">25</text><rect x="148" y="86" width="30" height="20" rx="3" fill="#fb923c" stroke="#cbd5e1"/><text x="163" y="100" text-anchor="middle" font-size="10">26</text><rect x="180" y="86" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="195" y="100" text-anchor="middle" font-size="10">27</text><rect x="212" y="86" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="227" y="100" text-anchor="middle" font-size="10">28</text><rect x="20" y="108" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="35" y="122" text-anchor="middle" font-size="10">29</text><rect x="52" y="108" width="30" height="20" rx="3" fill="#ffffff" stroke="#cbd5e1"/><text x="67" y="122" text-anchor="middle" font-size="10">30</text><text x="260" y="40" font-size="11">Thanksgiving: the 4th</text><text x="260" y="54" font-size="11">Thursday of November</text><text x="260" y="80" font-size="10" fill="#475569">first Thursday = 1 + (4 - 0 + 7) % 7</text><text x="260" y="94" font-size="10" fill="#475569">= the 5th</text><text x="260" y="112" font-size="10" fill="#475569">4th = 5 + 3 x 7 = the 26th</text></svg>
+```
+
+**`nthWeekday`.** The first matching weekday is `1 + (weekday - firstDay + 7) % 7`; the `+ 7` keeps the result positive. Each later one is 7 days on. For "last", it starts from the month's last day and steps back.
+
+**Easter** falls on the first Sunday after the first full moon on or after March 21, which depends on the moon's cycle. The algorithm is a well-known formula of divisions and remainders that works for any year in the Gregorian calendar (2026: April 5).
+
+**Observed days.** When a federal holiday falls on a Saturday, offices close on Friday; on a Sunday, on Monday. `fixedFederal()` adds the "(observed)" day too. July 4, 2026 is a Saturday, so Friday July 3 is shaded. One odd case: when New Year's Day is a Saturday, it's observed on December 31 of the year before.
+
+`holidaysOn(key)` works out a whole year once and keeps it in a `Map` by day, so drawing 42 days doesn't recalculate 42 times. Days with a federal holiday get the `dayoff` class and are shaded, and the day panel names the holiday.
+
+### Try it
+
+Go to November: Thanksgiving is on the 26th, Veterans Day on the 11th. Go to July 2026: the 3rd is "Independence Day (observed)".
+
+check: js | the nth weekday of a month | /function\s+nthWeekday\s*\(/
+check: js | Easter for any year | /function\s+easter\s*\(/
+check: js | weekend holidays move to Friday or Monday | /function\s+observed\s*\(/
+check: js | each year is worked out once | /holidayCache\.has\(\s*year\s*\)/
+
+quiz: November 1 is a Sunday (getDay() = 0). What date is the first Thursday (weekday 4)?
+- [ ] November 4
+- [x] November 5
+- [ ] November 7
+why: 1 + (4 - 0 + 7) % 7 = 1 + 4 = 5.
+quiz: Christmas falls on a Saturday. Which day is the federal holiday observed?
+- [x] Friday, December 24
+- [ ] Monday, December 27
+- [ ] It isn't observed
+why: Saturday holidays move to the Friday before; Sunday ones to the Monday after.
+
+```js holidays
+// US holidays for any year, worked out from their rules (no list to keep up to date).
+const day = (y, m, d) => new Date(y, m, d);
+
+// The nth weekday of a month (weekday 0 = Sunday). n = -1 means the last one.
+function nthWeekday(year, month, weekday, n) {
+  if (n > 0) {
+    const first = day(year, month, 1);
+    return day(year, month, 1 + ((weekday - first.getDay() + 7) % 7) + (n - 1) * 7);
+  }
+  const last = day(year, month + 1, 0);
+  return day(year, month, last.getDate() - ((last.getDay() - weekday + 7) % 7));
+}
+
+// Easter Sunday (Western), with the anonymous Gregorian algorithm.
+function easter(year) {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31), date = ((h + l - 7 * m + 114) % 31) + 1;
+  return day(year, month - 1, date);
+}
+
+// A Saturday holiday is observed on Friday, a Sunday one on Monday.
+function observed(date) {
+  const wd = date.getDay();
+  if (wd === 6) return day(date.getFullYear(), date.getMonth(), date.getDate() - 1);
+  if (wd === 0) return day(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+  return null;
+}
+
+// Every holiday in a year: { date, name, emoji, federal }, sorted by date.
+function holidaysFor(year) {
+  const list = [];
+  const add = (date, name, emoji, federal = false) => list.push({ date: toKey(date), name, emoji, federal });
+  const fixedFederal = (month, d, name, emoji) => {
+    const date = day(year, month, d);
+    add(date, name, emoji, true);
+    const obs = observed(date);
+    if (obs && obs.getFullYear() === year) add(obs, `${name} (observed)`, emoji, true);
+  };
+
+  fixedFederal(0, 1, "New Year's Day", '🎆');
+  add(nthWeekday(year, 0, 1, 3), 'Martin Luther King Jr. Day', '✊', true);
+  add(day(year, 1, 14), "Valentine's Day", '❤️');
+  add(nthWeekday(year, 1, 1, 3), "Presidents' Day", '🇺🇸', true);
+  add(day(year, 2, 17), "St. Patrick's Day", '☘️');
+  add(easter(year), 'Easter', '🐣');
+  add(nthWeekday(year, 4, 0, 2), "Mother's Day", '💐');
+  add(nthWeekday(year, 4, 1, -1), 'Memorial Day', '🎖️', true);
+  add(nthWeekday(year, 5, 0, 3), "Father's Day", '👔');
+  if (year >= 2021) fixedFederal(5, 19, 'Juneteenth', '✊🏾');
+  fixedFederal(6, 4, 'Independence Day', '🎇');
+  add(nthWeekday(year, 8, 1, 1), 'Labor Day', '🛠️', true);
+  add(nthWeekday(year, 9, 1, 2), "Columbus Day / Indigenous Peoples' Day", '🧭', true);
+  add(day(year, 9, 31), 'Halloween', '🎃');
+  fixedFederal(10, 11, 'Veterans Day', '🎖️');
+  add(nthWeekday(year, 10, 4, 4), 'Thanksgiving', '🦃', true);
+  add(day(year, 11, 24), 'Christmas Eve', '🎄');
+  fixedFederal(11, 25, 'Christmas Day', '🎄');
+  add(day(year, 11, 31), "New Year's Eve", '🥂');
+  // next year's New Year's Day on a Saturday is observed on Friday, December 31 of this year
+  if (day(year + 1, 0, 1).getDay() === 6) add(day(year, 11, 31), "New Year's Day (observed)", '🎆', true);
+  return list.sort((a, b) => a.date.localeCompare(b.date) || b.federal - a.federal);
+}
+
+// Holidays on one day. Each year is worked out once and kept in a Map.
+const holidayCache = new Map();
+function holidaysOn(key) {
+  const year = Number(key.slice(0, 4));
+  if (!holidayCache.has(year)) {
+    const byDay = new Map();
+    for (const h of holidaysFor(year)) byDay.set(h.date, [...(byDay.get(h.date) ?? []), h]);
+    holidayCache.set(year, byDay);
+  }
+  return holidayCache.get(year).get(key) ?? [];
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+// Task titles are typed by people, so escape them before they go into HTML.
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const todayKey = toKey(new Date());
+const fmtDay = (key, opts = { weekday: 'long', month: 'long', day: 'numeric' }) => fromKey(key).toLocaleDateString(undefined, opts);
+let selected = todayKey;
+let viewYear = new Date().getFullYear();
+let viewMonth = new Date().getMonth();
+const fmtTime = (t) => (t ? new Date(`2000-01-01T${t}`).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');
+const repeatLabel = { daily: 'Every day', weekdays: 'Weekdays', weekly: 'Every week', monthly: 'Every month' };
+
+// A few example tasks so the calendar isn't empty
+let tasks = [
+  newTask({ title: 'Welcome! Click a day to add tasks', date: todayKey, priority: 'high' }),
+  newTask({ title: 'Morning workout', date: todayKey, time: '06:30', repeat: 'weekdays', priority: 'low' }),
+  newTask({ title: 'Review the week', date: addDays(todayKey, 2), repeat: 'weekly' }),
+];
+
+function renderCalendar() {
+  $('monthLabel').textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  $('grid').innerHTML = monthGrid(viewYear, viewMonth).map((key) => {
+    const d = fromKey(key);
+    const list = tasksOn(tasks, key);
+    const hols = holidaysOn(key);
+    const cls = ['day', d.getMonth() !== viewMonth && 'other', key === todayKey && 'today', key === selected && 'selected', hols.some((h) => h.federal) && 'dayoff'].filter(Boolean).join(' ');
+    const holiday = hols.length ? `<span class="holiday" title="${esc(hols.map((h) => h.name).join(', '))}">${hols[0].emoji} ${esc(hols[0].name)}</span>` : '';
+    const chips = list.slice(0, 3).map((t) => `<span class="chip ${t.priority}${t.completed ? ' done' : ''}"${t.repeat === 'none' ? ' draggable="true"' : ''} data-id="${t.id}">${esc(t.title)}</span>`).join('');
+    const more = list.length > 3 ? `<span class="more">+${list.length - 3} more</span>` : '';
+    return `<button class="${cls}" data-key="${key}" aria-label="${fmtDay(key)}, ${list.length} tasks"><span class="num">${d.getDate()}</span>${holiday}${chips}${more}</button>`;
+  }).join('');
+}
+
+const taskItem = (t, key, showDate = false) => `
+  <li class="task ${t.priority}${t.completed ? ' completed' : ''}">
+    <input type="checkbox" ${t.completed ? 'checked' : ''} data-toggle="${t.id}" data-key="${key}" aria-label="Done: ${esc(t.title)}">
+    <span class="t-body">
+      <span class="t-title">${esc(t.title)}</span>
+      <span class="t-meta">${[showDate && fmtDay(key, { weekday: 'short', month: 'short', day: 'numeric' }), fmtTime(t.time), repeatLabel[t.repeat]].filter(Boolean).join(' · ')}</span>
+    </span>
+    <button class="del" data-del="${t.id}" aria-label="Delete ${esc(t.title)}">✕</button>
+  </li>`;
+
+function renderDay() {
+  $('dayLabel').textContent = selected === todayKey ? `Today, ${fmtDay(selected, { month: 'long', day: 'numeric' })}` : fmtDay(selected);
+  const hols = holidaysOn(selected);
+  $('dayHoliday').hidden = !hols.length;
+  $('dayHoliday').textContent = hols.map((h) => `${h.emoji} ${h.name}${h.federal ? ' · federal holiday' : ''}`).join('  ·  ');
+  $('dayTasks').innerHTML = tasksOn(tasks, selected).map((t) => taskItem(t, selected)).join('')
+    || '<li class="empty">No tasks. Enjoy the free time, or add one above.</li>';
+}
+
+function renderMonth() {
+  const late = overdue(tasks, todayKey);
+  $('overdueAlert').innerHTML = late.length ? `<details class="overdue" open>
+    <summary>⚠️ ${late.length} overdue task${late.length > 1 ? 's' : ''}</summary>
+    <ul class="tasks">${late.map((t) => taskItem({ ...t, completed: false }, t.date, true)).join('')}</ul></details>` : '';
+}
+
+function render() { renderCalendar(); renderDay(); renderMonth(); }
+
+// Clicking a day selects it (and moves to its month if it's one of the grey days)
+$('grid').addEventListener('click', (e) => {
+  const day = e.target.closest('.day');
+  if (!day) return;
+  selected = day.dataset.key;
+  const d = fromKey(selected);
+  if (d.getMonth() !== viewMonth) { viewMonth = d.getMonth(); viewYear = d.getFullYear(); }
+  render();
+});
+$('prevMonth').onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); };
+$('nextMonth').onclick = () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); };
+$('today').onclick = () => { selected = todayKey; viewYear = new Date().getFullYear(); viewMonth = new Date().getMonth(); render(); };
+
+$('addForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  tasks.push(newTask({ title: $('title').value, date: selected, time: $('time').value, priority: $('priority').value, repeat: $('repeat').value }));
+  $('title').value = ''; $('time').value = ''; $('repeat').value = 'none';
+  render();
+});
+
+// One listener for every checkbox and ✕, wherever they are on the page
+document.addEventListener('change', (e) => {
+  const id = e.target.dataset.toggle;
+  if (!id) return;
+  tasks = tasks.map((t) => (t.id === id ? toggle(t, e.target.dataset.key) : t));
+  render();
+});
+document.addEventListener('click', (e) => {
+  const id = e.target.dataset.del;
+  if (!id) return;
+  const task = tasks.find((t) => t.id === id);
+  if (task.repeat !== 'none' && !confirm(`"${task.title}" repeats. Delete every occurrence?`)) return;
+  tasks = tasks.filter((t) => t.id !== id);
+  render();
+});
+
+// Drag and drop a one-time task onto another day to reschedule it
+let dragId = null;
+$('grid').addEventListener('dragstart', (e) => { dragId = e.target.dataset.id; e.dataTransfer.effectAllowed = 'move'; });
+$('grid').addEventListener('dragover', (e) => {
+  const day = e.target.closest('.day');
+  if (day && dragId) { e.preventDefault(); day.classList.add('drop'); }   // preventDefault = "you may drop here"
+});
+$('grid').addEventListener('dragleave', (e) => e.target.closest('.day')?.classList.remove('drop'));
+$('grid').addEventListener('drop', (e) => {
+  const day = e.target.closest('.day');
+  if (!day || !dragId) return;
+  e.preventDefault();
+  tasks = tasks.map((t) => (t.id === dragId ? { ...t, date: day.dataset.key } : t));
+  dragId = null;
+  render();
+});
+```
+
+## Step: A theme for every month, and "This month"
+time: 20
+
+Each month gets a theme from its best-known holiday: fireworks in January, hearts in February, a shamrock in March, a pumpkin in October, a turkey in November. A theme is just data:
+
+| Field | Example (October) | Used for |
+|---|---|---|
+| `emoji` | 🎃 | the badge and the wallpaper |
+| `accent` | `#c2410c` | the header and buttons |
+| `tint` | `#ffedd5` | the calendar's background wash |
+
+**CSS custom properties do the theming.** The stylesheet uses `var(--accent)` and `var(--tint)` everywhere. When the `.seasonal` class is on the page, those point at `--theme-accent` and `--theme-tint`, which `applySeasonal()` sets with `style.setProperty()`. Changing three variables recolors the whole page; no element is restyled one by one. The 🎨 button turns the theme off and on.
+
+**Emoji wallpaper.** `emojiTile()` builds a tiny SVG image with the emoji twice and turns it into a `data:` URL, which CSS repeats as `background-image` behind the days. The theme follows the month you're **looking at**, not today's month.
+
+**This month.** `monthHighlights()` collects the month's holidays and its **high-priority** tasks in date order. A repeating task is listed once, on its first day in the month, with "4 times this month". Clicking one selects that day.
+
+### Try it
+
+Click › through the year and watch the colors and emoji change. Mark a weekly task High: it appears in This month with its count.
+
+check: js | twelve themes | /const\s+THEMES\s*=/
+check: js | the page's colors come from the theme | /setProperty\(\s*['"]--theme-accent['"]/
+check: js | an emoji wallpaper | /function\s+emojiTile\s*\(/
+check: js | the This month list | /function\s+monthHighlights\s*\(/
+
+quiz: How does applySeasonal() recolor the whole page?
+- [x] It changes a few CSS custom properties, and every rule that uses var(--accent) updates
+- [ ] It rewrites every element's style
+- [ ] It loads a new stylesheet
+why: Custom properties are variables for CSS: change the value once, it changes everywhere.
+quiz: A weekly High task comes up 4 times in a month. How does This month show it?
+- [ ] Four separate rows
+- [x] Once, on its first day, with "4 times this month"
+- [ ] Not at all
+why: monthHighlights() counts repeats in a Map by task id instead of listing each one.
+
+```js themes
+// A color theme for each month, from its best-known holiday (or season, for August).
+const THEMES = [
+  { month: 'January', holiday: "New Year's", emoji: '🎆', accent: '#1d4ed8', tint: '#e0e7ff' },
+  { month: 'February', holiday: "Valentine's Day", emoji: '❤️', accent: '#be123c', tint: '#ffe4e6' },
+  { month: 'March', holiday: "St. Patrick's Day", emoji: '☘️', accent: '#15803d', tint: '#dcfce7' },
+  { month: 'April', holiday: 'Easter', emoji: '🐣', accent: '#7c3aed', tint: '#f3e8ff' },
+  { month: 'May', holiday: "Mother's Day", emoji: '💐', accent: '#a21caf', tint: '#fae8ff' },
+  { month: 'June', holiday: 'Juneteenth', emoji: '✊🏾', accent: '#a16207', tint: '#fef9c3' },
+  { month: 'July', holiday: 'Independence Day', emoji: '🎇', accent: '#b91c1c', tint: '#dbeafe' },
+  { month: 'August', holiday: 'Summer break', emoji: '🏖️', accent: '#0e7490', tint: '#cffafe' },
+  { month: 'September', holiday: 'Labor Day', emoji: '🛠️', accent: '#0369a1', tint: '#e0f2fe' },
+  { month: 'October', holiday: 'Halloween', emoji: '🎃', accent: '#c2410c', tint: '#ffedd5' },
+  { month: 'November', holiday: 'Thanksgiving', emoji: '🦃', accent: '#92400e', tint: '#fef3c7' },
+  { month: 'December', holiday: 'Christmas', emoji: '🎄', accent: '#b91c1c', tint: '#dcfce7' },
+];
+const themeFor = (month) => THEMES[((month % 12) + 12) % 12];
+
+// "This month": holidays plus high-priority tasks, in date order. A repeating task is listed once,
+// on its first day in the month, with how many times it comes up.
+function monthHighlights(tasks, year, month) {
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const holidays = holidaysFor(year)
+    .filter((h) => h.date.startsWith(prefix))
+    .map((h) => ({ key: h.date, type: 'holiday', name: h.name, emoji: h.emoji, federal: h.federal }));
+  const seen = new Map();
+  const days = new Date(year, month + 1, 0).getDate();
+  for (let d = 1; d <= days; d++) {
+    const key = toKey(new Date(year, month, d));
+    for (const t of tasksOn(tasks, key)) {
+      if (t.priority !== 'high') continue;
+      if (seen.has(t.id)) seen.get(t.id).times++;
+      else seen.set(t.id, { key, type: 'task', task: t, times: 1 });
+    }
+  }
+  return [...holidays, ...seen.values()]
+    .sort((a, b) => a.key.localeCompare(b.key) || (a.type === b.type ? 0 : a.type === 'holiday' ? -1 : 1));
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+// Task titles are typed by people, so escape them before they go into HTML.
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const todayKey = toKey(new Date());
+const fmtDay = (key, opts = { weekday: 'long', month: 'long', day: 'numeric' }) => fromKey(key).toLocaleDateString(undefined, opts);
+let selected = todayKey;
+let viewYear = new Date().getFullYear();
+let viewMonth = new Date().getMonth();
+const fmtTime = (t) => (t ? new Date(`2000-01-01T${t}`).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');
+const repeatLabel = { daily: 'Every day', weekdays: 'Weekdays', weekly: 'Every week', monthly: 'Every month' };
+
+// A few example tasks so the calendar isn't empty
+let tasks = [
+  newTask({ title: 'Welcome! Click a day to add tasks', date: todayKey, priority: 'high' }),
+  newTask({ title: 'Morning workout', date: todayKey, time: '06:30', repeat: 'weekdays', priority: 'low' }),
+  newTask({ title: 'Review the week', date: addDays(todayKey, 2), repeat: 'weekly' }),
+];
+
+// The monthly theme: colors and an emoji wallpaper that follow the month on screen.
+let seasonal = true;
+function applySeasonal() {
+  const t = themeFor(viewMonth);
+  const root = document.documentElement;
+  root.classList.toggle('seasonal', seasonal);
+  root.style.setProperty('--theme-accent', t.accent);
+  root.style.setProperty('--theme-tint', t.tint);
+  root.style.setProperty('--theme-pattern', `url("${emojiTile(t.emoji)}")`);
+  $('themeBadge').hidden = !seasonal;
+  $('themeBadge').textContent = `${t.emoji} ${t.holiday}`;
+  $('seasonal').setAttribute('aria-pressed', String(seasonal));
+}
+
+// A small SVG with the emoji twice, offset like wallpaper, as a data: URL for the CSS background.
+function emojiTile(emoji) {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">'
+    + `<text x="18" y="44" font-size="30" opacity="0.35">${emoji}</text><text x="78" y="104" font-size="30" opacity="0.35">${emoji}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+function renderCalendar() {
+  applySeasonal();
+  $('monthLabel').textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  $('grid').innerHTML = monthGrid(viewYear, viewMonth).map((key) => {
+    const d = fromKey(key);
+    const list = tasksOn(tasks, key);
+    const hols = holidaysOn(key);
+    const cls = ['day', d.getMonth() !== viewMonth && 'other', key === todayKey && 'today', key === selected && 'selected', hols.some((h) => h.federal) && 'dayoff'].filter(Boolean).join(' ');
+    const holiday = hols.length ? `<span class="holiday" title="${esc(hols.map((h) => h.name).join(', '))}">${hols[0].emoji} ${esc(hols[0].name)}</span>` : '';
+    const chips = list.slice(0, 3).map((t) => `<span class="chip ${t.priority}${t.completed ? ' done' : ''}"${t.repeat === 'none' ? ' draggable="true"' : ''} data-id="${t.id}">${esc(t.title)}</span>`).join('');
+    const more = list.length > 3 ? `<span class="more">+${list.length - 3} more</span>` : '';
+    return `<button class="${cls}" data-key="${key}" aria-label="${fmtDay(key)}, ${list.length} tasks"><span class="num">${d.getDate()}</span>${holiday}${chips}${more}</button>`;
+  }).join('');
+}
+
+const taskItem = (t, key, showDate = false) => `
+  <li class="task ${t.priority}${t.completed ? ' completed' : ''}">
+    <input type="checkbox" ${t.completed ? 'checked' : ''} data-toggle="${t.id}" data-key="${key}" aria-label="Done: ${esc(t.title)}">
+    <span class="t-body">
+      <span class="t-title">${esc(t.title)}</span>
+      <span class="t-meta">${[showDate && fmtDay(key, { weekday: 'short', month: 'short', day: 'numeric' }), fmtTime(t.time), repeatLabel[t.repeat]].filter(Boolean).join(' · ')}</span>
+    </span>
+    <button class="del" data-del="${t.id}" aria-label="Delete ${esc(t.title)}">✕</button>
+  </li>`;
+
+function renderDay() {
+  $('dayLabel').textContent = selected === todayKey ? `Today, ${fmtDay(selected, { month: 'long', day: 'numeric' })}` : fmtDay(selected);
+  const hols = holidaysOn(selected);
+  $('dayHoliday').hidden = !hols.length;
+  $('dayHoliday').textContent = hols.map((h) => `${h.emoji} ${h.name}${h.federal ? ' · federal holiday' : ''}`).join('  ·  ');
+  $('dayTasks').innerHTML = tasksOn(tasks, selected).map((t) => taskItem(t, selected)).join('')
+    || '<li class="empty">No tasks. Enjoy the free time, or add one above.</li>';
+}
+
+function renderMonth() {
+  const late = overdue(tasks, todayKey);
+  $('overdueAlert').innerHTML = late.length ? `<details class="overdue" open>
+    <summary>⚠️ ${late.length} overdue task${late.length > 1 ? 's' : ''}</summary>
+    <ul class="tasks">${late.map((t) => taskItem({ ...t, completed: false }, t.date, true)).join('')}</ul></details>` : '';
+  const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long' });
+  $('monthTitle').textContent = `This month: ${monthName}`;
+  $('monthList').innerHTML = monthHighlights(tasks, viewYear, viewMonth).map((x) => {
+    const d = fromKey(x.key);
+    const past = x.key < todayKey ? ' past' : '';
+    const date = `<span class="hl-date"><b>${d.getDate()}</b>${d.toLocaleDateString(undefined, { weekday: 'short' })}</span>`;
+    const title = x.type === 'holiday' ? `${x.emoji} ${esc(x.name)}` : `⭐ ${esc(x.task.title)}`;
+    const meta = x.type === 'holiday' ? (x.federal ? 'Federal holiday' : 'Holiday')
+      : [fmtTime(x.task.time), x.times > 1 ? `${x.times} times this month` : ''].filter(Boolean).join(' · ');
+    return `<li><button class="hl${past}" data-goto="${x.key}">${date}<span class="hl-body"><span class="hl-title">${title}</span>`
+      + `${meta ? `<span class="hl-meta">${meta}</span>` : ''}</span></button></li>`;
+  }).join('') || '<li class="empty">Nothing important yet this month. Mark a task High to see it here.</li>';
+}
+
+function render() { renderCalendar(); renderDay(); renderMonth(); }
+
+// Clicking a day selects it (and moves to its month if it's one of the grey days)
+$('grid').addEventListener('click', (e) => {
+  const day = e.target.closest('.day');
+  if (!day) return;
+  selected = day.dataset.key;
+  const d = fromKey(selected);
+  if (d.getMonth() !== viewMonth) { viewMonth = d.getMonth(); viewYear = d.getFullYear(); }
+  render();
+});
+$('prevMonth').onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); };
+$('nextMonth').onclick = () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); };
+$('today').onclick = () => { selected = todayKey; viewYear = new Date().getFullYear(); viewMonth = new Date().getMonth(); render(); };
+
+$('addForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  tasks.push(newTask({ title: $('title').value, date: selected, time: $('time').value, priority: $('priority').value, repeat: $('repeat').value }));
+  $('title').value = ''; $('time').value = ''; $('repeat').value = 'none';
+  render();
+});
+
+// One listener for every checkbox and ✕, wherever they are on the page
+document.addEventListener('change', (e) => {
+  const id = e.target.dataset.toggle;
+  if (!id) return;
+  tasks = tasks.map((t) => (t.id === id ? toggle(t, e.target.dataset.key) : t));
+  render();
+});
+document.addEventListener('click', (e) => {
+  const id = e.target.dataset.del;
+  if (!id) return;
+  const task = tasks.find((t) => t.id === id);
+  if (task.repeat !== 'none' && !confirm(`"${task.title}" repeats. Delete every occurrence?`)) return;
+  tasks = tasks.filter((t) => t.id !== id);
+  render();
+});
+
+// Drag and drop a one-time task onto another day to reschedule it
+let dragId = null;
+$('grid').addEventListener('dragstart', (e) => { dragId = e.target.dataset.id; e.dataTransfer.effectAllowed = 'move'; });
+$('grid').addEventListener('dragover', (e) => {
+  const day = e.target.closest('.day');
+  if (day && dragId) { e.preventDefault(); day.classList.add('drop'); }   // preventDefault = "you may drop here"
+});
+$('grid').addEventListener('dragleave', (e) => e.target.closest('.day')?.classList.remove('drop'));
+$('grid').addEventListener('drop', (e) => {
+  const day = e.target.closest('.day');
+  if (!day || !dragId) return;
+  e.preventDefault();
+  tasks = tasks.map((t) => (t.id === dragId ? { ...t, date: day.dataset.key } : t));
+  dragId = null;
+  render();
+});
+
+$('seasonal').onclick = () => { seasonal = !seasonal; applySeasonal(); };
+$('monthList').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-goto]');
+  if (!b) return;
+  selected = b.dataset.goto;
+  render();
+});
+```
+
 ## Finish
 
 ### What you learned

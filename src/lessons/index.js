@@ -7,7 +7,7 @@ export const GUIDES = [
   { id: 'quote', title: 'Quote & Joke Generator', emoji: '💬', level: 'Beginner', time: 'about 2 hours', steps: 0, available: false,
     summary: 'Arrays of data, random picks, category filters, favorites, sharing, and accounts so favorites follow you to any device.',
     load: () => import('./quote.js') },
-  { id: 'calendar', title: 'Task Calendar', emoji: '📅', level: 'Beginner+', time: 'about 3 hours', steps: 6, available: true,
+  { id: 'calendar', title: 'Task Calendar', emoji: '📅', level: 'Beginner+', time: 'about 3 hours', steps: 8, available: true,
     summary: 'Dates and a month grid, repeating tasks, drag to reschedule, US holidays with monthly themes, a This month panel, locations, email reminders and .ics export, plus how the weather works.', load: () => import('./calendar.js') },
   { id: 'sudoku', title: 'Sudoku Solver', emoji: '🔢', level: 'Intermediate', time: 'about 3 hours', steps: 12, available: true,
     summary: 'A 9 x 9 grid, rule checks, a solver that explains every step and backtrack, and making puzzles at three levels.', load: () => import('./sudoku.js') },
