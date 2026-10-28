@@ -4,7 +4,7 @@ export const GUIDES = [
   { id: 'snake', title: 'Snake', emoji: '🐍', level: 'Beginner', time: 'about 3 hours', steps: 13, available: true,
     summary: 'Canvas drawing, a game loop, keyboard and swipe controls, and keeping game rules separate from drawing.',
     load: () => import('./snake.js') },
-  { id: 'quote', title: 'Quote & Joke Generator', emoji: '💬', level: 'Beginner', time: 'about 2 hours', steps: 0, available: false,
+  { id: 'quote', title: 'Quote & Joke Generator', emoji: '💬', level: 'Beginner', time: 'about 3 hours', steps: 3, available: true,
     summary: 'Arrays of data, random picks, category filters, favorites, sharing, and accounts so favorites follow you to any device.',
     load: () => import('./quote.js') },
   { id: 'calendar', title: 'Task Calendar', emoji: '📅', level: 'Beginner+', time: 'about 3 hours', steps: 11, available: true,
