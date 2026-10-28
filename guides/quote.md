@@ -460,6 +460,289 @@ $('next').onclick = next;
 $('reveal').onclick = revealPunchline;
 ```
 
+## Session: Delight and sharing
+
+## Step: A typewriter, a card flip and a shortcut
+time: 15
+
+Small touches make the app feel alive.
+
+**Typewriter.** `typeText(el, text, done)` shows one more letter every 22 milliseconds with `setInterval`, and a blinking cursor (`.typing::after`) while it types. When it finishes it calls `done()`: that's when a quote's author appears, or a joke's **Reveal** button. `clearInterval(typing)` at the start stops any typing that's still going, so pressing New one quickly never mixes two texts.
+
+**Card flip.** The `.flip` class runs a short CSS animation. Adding a class that's already there does nothing, so `show()` removes it, reads `offsetWidth` (which makes the browser apply the change right away), and adds it again. That restarts the animation every time.
+
+**Reduced motion.** Some people turn off animations in their system settings, because motion can cause dizziness or nausea. `matchMedia('(prefers-reduced-motion: reduce)')` reads that setting: then the text appears at once, and a CSS media query turns off the animations.
+
+**Space bar.** Press Space for a new one, or to reveal a waiting punchline. The listener ignores Space while you're in a menu or a text field, where it means something else, and `preventDefault()` stops the page from scrolling.
+
+| Key press | What happens |
+|---|---|
+| Space, punchline waiting | reveal it |
+| Space, otherwise | a new item |
+| Space in a field or menu | nothing extra (it types or opens the menu) |
+
+check: js | a typewriter | /function\s+typeText\s*\(/
+check: js | it respects reduced motion | /prefers-reduced-motion/
+check: js | the flip animation restarts | /void\s+\$\(\s*['"]card['"]\s*\)\.offsetWidth/
+check: js | a Space shortcut | /e\.code\s*===\s*['"]Space['"]/
+
+quiz: Why does typeText() start with clearInterval(typing)?
+- [ ] To make typing faster
+- [x] So a new text stops the old one, instead of two timers typing into the same card
+- [ ] clearInterval is required before setInterval
+why: Without it, a quick double press would interleave letters from two items.
+quiz: Why ignore the Space key when the focus is in a select or input?
+- [x] There Space already does something (types a space, opens the menu), so the shortcut would get in the way
+- [ ] Space doesn't work in inputs
+- [ ] To save battery
+why: Keyboard shortcuts must not take over keys that a focused control needs.
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let mode = 'quote';                 // 'quote', 'joke' or 'fav'
+let current = null;                 // the item on the card
+let typing = null;                  // the typewriter's timer
+
+const pool = () => filterByTag(mode === 'quote' ? QUOTES : JOKES, $('tag').value);
+
+function setMode(next) {
+  mode = next;
+  document.body.className = next;          // each tab has its own background colors
+  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === next)));
+  const items = next === 'quote' ? QUOTES : JOKES;
+  $('tag').innerHTML = ['all', ...allTags(items)]
+    .map((t) => `<option value="${t}">${t === 'all' ? 'Everything' : t[0].toUpperCase() + t.slice(1)}</option>`).join('');
+  show(items[dailyIndex(items.length)], true);   // each tab opens on today's pick
+}
+
+// Types the text one letter at a time, then calls done(). Shown at once for people who turned off motion.
+function typeText(el, text, done) {
+  clearInterval(typing);
+  if (reduced) { el.textContent = text; return done?.(); }
+  el.textContent = '';
+  el.classList.add('typing');
+  let i = 0;
+  typing = setInterval(() => {
+    el.textContent = text.slice(0, ++i);
+    if (i >= text.length) { clearInterval(typing); el.classList.remove('typing'); done?.(); }
+  }, 22);
+}
+
+function show(item, isDaily = false) {
+  current = item;
+  $('card').classList.remove('flip');
+  void $('card').offsetWidth;                 // reading the size restarts the CSS animation
+  $('card').classList.add('flip');
+  $('daily').hidden = !isDaily;
+  $('sub').className = 'sub';
+  $('reveal').hidden = true;
+  $('sub').textContent = '';
+  if (item.setup) {
+    typeText($('main'), item.setup, () => { $('reveal').hidden = false; });
+  } else {
+    typeText($('main'), `“${item.text}”`, () => { $('sub').textContent = `— ${item.author}, ${item.source}`; });
+  }
+}
+
+function next() {
+  const items = pool();
+  show(items[nextIndex(items.length, items.indexOf(current))]);
+}
+
+function revealPunchline() {
+  if (!current?.setup) return;
+  $('reveal').hidden = true;
+  $('sub').className = 'sub punch';
+  $('sub').textContent = current.punchline;
+}
+
+document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
+$('tag').onchange = next;
+$('next').onclick = next;
+$('reveal').onclick = revealPunchline;
+// Space: a new one, or the punchline if it's waiting (but not while typing in a form field)
+addEventListener('keydown', (e) => {
+  if (e.target.matches('select, input') || mode === 'fav' || $('authDialog').open) return;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (current?.setup && !$('reveal').hidden) revealPunchline();
+    else next();
+  }
+});
+```
+
+## Step: Copy, share and save
+time: 20
+
+**Copy** uses `navigator.clipboard.writeText()`. It can be refused (some browsers and sandboxed pages don't allow it), so it's inside `try`/`catch` and a little toast message says which happened.
+
+**Share** is a link to X's "post" page with the text in the URL. `encodeURIComponent()` makes quotes, `&` and other characters safe inside the link.
+
+**Save** keeps favorites as text in `localStorage`. Like copying, storage can be blocked: private browsing, a browser setting, or a sandbox. **This editor's preview blocks it**, so the code keeps a copy in a variable too: favorites work for as long as the page is open, and the page never crashes. On a normal page they're remembered next time.
+
+| Action | Browser feature | If it's not allowed |
+|---|---|---|
+| Copy | Clipboard API | "Copy not allowed here" |
+| Share | a link with an encoded URL | (always works) |
+| Save | `localStorage` | kept in memory instead |
+
+The ★ Saved tab lists them with a ✕ to remove each one. The list is built with `innerHTML`, so each text goes through `esc()` first. These texts come from the app's own data, but escaping everything that goes into HTML is a habit worth keeping: it's what stops someone's typed text from becoming code.
+
+The Save button shows **★ Saved** when the item on the card is already a favorite, and pressing it again removes it.
+
+### Try it
+
+Save two quotes and a joke, open ★ Saved, and remove one. Try Copy and Share.
+
+check: js | saving survives blocked storage | /catch\s*\{\s*return\s+memorySaved/
+check: js | a share link | /encodeURIComponent\(\s*asText\(\s*item\s*\)\s*\)/
+check: js | copy to the clipboard | /navigator\.clipboard\.writeText\(/
+check: js | the saved list is escaped | /\$\{\s*esc\(\s*f\.text\s*\)\s*\}/
+
+quiz: Why does the save code keep a copy of favorites in a variable as well as localStorage?
+- [ ] localStorage is slow
+- [x] Storage can be blocked, and then the variable keeps the feature working instead of failing
+- [ ] To share favorites between tabs
+why: This preview is one such case: saving still works while the page is open.
+quiz: What does encodeURIComponent() do for the share link?
+- [ ] Shortens the text
+- [x] Turns characters like spaces, quotes and & into codes that are safe inside a URL
+- [ ] Encrypts the quote
+why: Without it, an & in a quote would end the text parameter early.
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let mode = 'quote';                 // 'quote', 'joke' or 'fav'
+let current = null;                 // the item on the card
+let typing = null;                  // the typewriter's timer
+let favorites = [];                 // [{ id?, text, kind }]
+// Saved while logged out: kept in this browser. Storage can be blocked (this editor's preview blocks it),
+// so a copy also lives in memory and the page keeps working.
+let memorySaved = [];
+const local = {
+  get: () => { try { return JSON.parse(localStorage.getItem('qj-favorites')) ?? memorySaved; } catch { return memorySaved; } },
+  set: (v) => { memorySaved = v; try { localStorage.setItem('qj-favorites', JSON.stringify(v)); } catch { /* blocked: memory only */ } },
+};
+
+const pool = () => filterByTag(mode === 'quote' ? QUOTES : JOKES, $('tag').value);
+const asText = (item) => (item.setup ? formatJoke(item) : formatQuote(item));
+
+function setMode(next) {
+  mode = next;
+  document.body.className = next;          // each tab has its own background colors
+  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === next)));
+  $('generator').hidden = next === 'fav';
+  $('favorites').hidden = next !== 'fav';
+  if (next === 'fav') return renderFavorites();
+  const items = next === 'quote' ? QUOTES : JOKES;
+  $('tag').innerHTML = ['all', ...allTags(items)]
+    .map((t) => `<option value="${t}">${t === 'all' ? 'Everything' : t[0].toUpperCase() + t.slice(1)}</option>`).join('');
+  show(items[dailyIndex(items.length)], true);   // each tab opens on today's pick
+}
+
+// Types the text one letter at a time, then calls done(). Shown at once for people who turned off motion.
+function typeText(el, text, done) {
+  clearInterval(typing);
+  if (reduced) { el.textContent = text; return done?.(); }
+  el.textContent = '';
+  el.classList.add('typing');
+  let i = 0;
+  typing = setInterval(() => {
+    el.textContent = text.slice(0, ++i);
+    if (i >= text.length) { clearInterval(typing); el.classList.remove('typing'); done?.(); }
+  }, 22);
+}
+
+function show(item, isDaily = false) {
+  current = item;
+  $('card').classList.remove('flip');
+  void $('card').offsetWidth;                 // reading the size restarts the CSS animation
+  $('card').classList.add('flip');
+  $('daily').hidden = !isDaily;
+  $('sub').className = 'sub';
+  $('reveal').hidden = true;
+  $('sub').textContent = '';
+  if (item.setup) {
+    typeText($('main'), item.setup, () => { $('reveal').hidden = false; });
+  } else {
+    typeText($('main'), `“${item.text}”`, () => { $('sub').textContent = `— ${item.author}, ${item.source}`; });
+  }
+  $('save').textContent = favorites.some((f) => f.text === asText(item)) ? '★ Saved' : '☆ Save';
+  $('share').href = `https://twitter.com/intent/tweet?text=${encodeURIComponent(asText(item))}`;
+}
+
+function next() {
+  const items = pool();
+  show(items[nextIndex(items.length, items.indexOf(current))]);
+}
+
+function revealPunchline() {
+  if (!current?.setup) return;
+  $('reveal').hidden = true;
+  $('sub').className = 'sub punch';
+  $('sub').textContent = current.punchline;
+}
+
+function toast(msg) {
+  $('toast').textContent = msg;
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { $('toast').textContent = ''; }, 1800);
+}
+
+function loadFavorites() {
+  favorites = local.get().map((text) => ({ text }));
+}
+
+function toggleSave() {
+  const text = asText(current);
+  const saved = local.get().includes(text);
+  local.set(saved ? local.get().filter((f) => f !== text) : [text, ...local.get()]);
+  loadFavorites();
+  $('save').textContent = saved ? '☆ Save' : '★ Saved';
+  toast(saved ? 'Removed from saved' : 'Saved!');
+}
+
+// Saved text came from our data, but escape it anyway: anything going into innerHTML should be.
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function renderFavorites() {
+  $('favEmpty').hidden = favorites.length > 0;
+  $('favList').innerHTML = favorites.map((f, i) => `<li><span>${esc(f.text)}</span><button data-i="${i}" aria-label="Remove">✕</button></li>`).join('');
+  $('favWhere').textContent = 'Saved in this browser.';
+}
+
+document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
+$('tag').onchange = next;
+$('next').onclick = next;
+$('reveal').onclick = revealPunchline;
+// Space: a new one, or the punchline if it's waiting (but not while typing in a form field)
+addEventListener('keydown', (e) => {
+  if (e.target.matches('select, input') || mode === 'fav' || $('authDialog').open) return;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (current?.setup && !$('reveal').hidden) revealPunchline();
+    else next();
+  }
+});
+$('save').onclick = toggleSave;
+$('copy').onclick = async () => {
+  try { await navigator.clipboard.writeText(asText(current)); toast('Copied to clipboard'); } catch { toast('Copy not allowed here'); }
+};
+$('favList').onclick = (e) => {
+  const i = e.target.dataset.i;
+  if (i === undefined) return;
+  local.set(local.get().filter((f) => f !== favorites[Number(i)].text));
+  loadFavorites();
+  renderFavorites();
+};
+```
+
+```js go
+loadFavorites();
+setMode('quote');
+```
+
 ## Finish
 
 ### What you learned
