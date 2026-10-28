@@ -743,6 +743,384 @@ loadFavorites();
 setMode('quote');
 ```
 
+## Session: Accounts: the rules
+
+## Step: Signing up and storing passwords safely
+time: 20
+
+Accounts let favorites follow you to any device. They also bring the most important rule in web development: **never store a password.** Store something you can check a password against, that can't be turned back into it.
+
+**Checking the input first.** `validateSignup()` returns an object of field messages:
+
+| Field | Rule |
+|---|---|
+| username | 3-20 letters, numbers or underscores; case doesn't matter (`Demo` = `demo`) |
+| password | 8-128 characters, and not the same as the username |
+
+Errors come back per field, so the page can show each message under the right box.
+
+**Hashing.** A hash function turns a password into a fixed-length scramble that can't be reversed. But a plain hash has two problems: the same password always gives the same hash (so a leak shows who shares a password), and fast hashes can be guessed billions of times a second. So:
+
+```svg A salted, slow hash: only the result is stored, never the password
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 160" font-family="sans-serif"><rect x="10" y="20" width="110" height="36" rx="6" fill="#e2e8f0" stroke="#475569"/><text x="65" y="42" text-anchor="middle" font-size="11">password</text><rect x="10" y="70" width="110" height="36" rx="6" fill="#fef9c3" stroke="#475569"/><text x="65" y="92" text-anchor="middle" font-size="11">random salt</text><rect x="160" y="40" width="120" height="50" rx="6" fill="#ffedd5" stroke="#475569"/><text x="220" y="62" text-anchor="middle" font-size="11">PBKDF2-SHA256</text><text x="220" y="78" text-anchor="middle" font-size="10">210,000 rounds</text><line x1="120" y1="38" x2="160" y2="58" stroke="#475569" stroke-width="2"/><line x1="120" y1="88" x2="160" y2="72" stroke="#475569" stroke-width="2"/><line x1="280" y1="65" x2="310" y2="65" stroke="#475569" stroke-width="2"/><rect x="310" y="40" width="110" height="50" rx="6" fill="#bbf7d0" stroke="#475569"/><text x="365" y="62" text-anchor="middle" font-size="10">pbkdf2$210000$</text><text x="365" y="78" text-anchor="middle" font-size="10">salt$hash</text><text x="215" y="126" text-anchor="middle" font-size="11" fill="#475569">only the right column is stored; the password itself never is</text><text x="215" y="144" text-anchor="middle" font-size="11" fill="#475569">a new salt per user means two people with the same password get different hashes</text></svg>
+```
+
+- A random **salt** (16 bytes from `crypto.getRandomValues()`) is mixed in for each user, and stored next to the hash.
+- **PBKDF2** runs the hash 210,000 times, so each guess is slow for an attacker but still quick enough for one log-in.
+- The stored text is `pbkdf2$210000$salt$hash`: everything needed to check a password later, and nothing that reveals it.
+
+To check a password, `verify()` hashes it again with the stored salt and compares. The comparison looks at **every byte** even after finding a difference, so the time it takes doesn't give away how close a guess was.
+
+This guide uses the browser's Web Crypto API (`crypto.subtle`), the same as the live demo. The real Node server uses **scrypt**, which also costs a lot of memory per guess.
+
+`AccountService` holds the rules, and a `store` object holds the data. For this guide the store is in memory; the real app passes a SQLite store or an IndexedDB store with the same methods.
+
+### Try it
+
+Open the console: the `go` block checks a too-short username and password, then signs up a made-up demo user.
+
+check: js | sign-up rules | /function\s+validateSignup\s*\(/
+check: js | a random salt per password | /crypto\.getRandomValues\(\s*new\s+Uint8Array\(\s*16\s*\)\s*\)/
+check: js | a slow, salted hash | /name:\s*['"]PBKDF2['"]/
+check: js | the sign-up rule in the service | /async\s+signup\s*\(/
+
+quiz: Why does every user get their own random salt?
+- [ ] To make passwords longer
+- [x] So two people with the same password get different hashes, and one precomputed table can't crack everyone
+- [ ] Salts make hashing faster
+why: With a salt, an attacker has to attack each account separately.
+quiz: Why run the hash 210,000 times?
+- [x] Each extra round makes every guess slower, which barely matters for one log-in but adds up for billions of guesses
+- [ ] To make the hash longer
+- [ ] Because one round might give the wrong answer
+why: Slowness is the point: it's a cost paid once by you and billions of times by an attacker.
+
+```js accounts
+// Account rules, written so they don't care where data is stored (the real app runs them on a Node server
+// with SQLite, and in the browser for the live demo).
+const MAX_FAILED_LOGINS = 5;
+const LOCKOUT_MINUTES = 15;
+const SESSION_DAYS = 30;
+
+class AccountError extends Error {
+  constructor(status, message, extra = {}) {
+    super(message);
+    this.status = status;          // an HTTP status code: 400 bad input, 401 wrong password, 409 taken, 429 too many tries
+    Object.assign(this, extra);
+  }
+}
+
+// Usernames ignore case: "Anthony" and "anthony" are the same account.
+const normalizeUsername = (name) => String(name ?? '').trim().toLowerCase();
+
+function validateSignup({ username, password }) {
+  const errors = {};
+  const name = normalizeUsername(username);
+  if (!/^[a-z0-9_]{3,20}$/.test(name)) errors.username = 'Use 3-20 letters, numbers or underscores.';
+  const pw = String(password ?? '');
+  if (pw.length < 8) errors.password = 'Use at least 8 characters.';
+  else if (pw.length > 128) errors.password = 'Use 128 characters or fewer.';
+  else if (pw.toLowerCase() === name) errors.password = "Your password can't be your username.";
+  return errors;
+}
+
+// ---- passwords, with the browser's Web Crypto API ----
+const ITERATIONS = 210_000;
+const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const b64ToBytes = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+
+async function pbkdf2(password, salt, iterations) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(password).normalize('NFKC')), 'PBKDF2', false, ['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256));
+}
+
+const passwords = {
+  // a new random salt for every password, so two people with the same password get different hashes
+  async hash(password) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    return `pbkdf2$${ITERATIONS}$${bytesToB64(salt)}$${bytesToB64(await pbkdf2(password, salt, ITERATIONS))}`;
+  },
+  async verify(password, stored) {
+    const [scheme, iterations, salt, hash] = String(stored).split('$');
+    if (scheme !== 'pbkdf2' || !hash) return false;
+    const actual = await pbkdf2(password, b64ToBytes(salt), Number(iterations));
+    const expected = b64ToBytes(hash);
+    // compare every byte, so the time taken doesn't depend on where they differ
+    let diff = actual.length ^ expected.length;
+    for (let i = 0; i < Math.min(actual.length, expected.length); i++) diff |= actual[i] ^ expected[i];
+    return diff === 0;
+  },
+};
+
+// Storage in memory, for this guide. The real app swaps in SQLite or IndexedDB with the same methods.
+function memoryStore() {
+  const state = { nextId: 1, users: [] };
+  return {
+    async createUser({ username, passwordHash, createdAt }) {
+      const id = state.nextId++;
+      state.users.push({ id, username, passwordHash, createdAt });
+      return id;
+    },
+    async userByName(name) { return state.users.find((u) => u.username === name) ?? null; },
+  };
+}
+
+class AccountService {
+  constructor({ store, passwords, now = () => Date.now() }) {
+    this.store = store;
+    this.passwords = passwords;
+    this.now = now;
+  }
+
+  async signup({ username, password }) {
+    const errors = validateSignup({ username, password });
+    if (Object.keys(errors).length) throw new AccountError(400, 'Please fix the highlighted fields.', { fields: errors });
+    const name = normalizeUsername(username);
+    if (await this.store.userByName(name)) {
+      throw new AccountError(409, 'That username is taken.', { fields: { username: 'That username is taken.' } });
+    }
+    const passwordHash = await this.passwords.hash(password);
+    const id = await this.store.createUser({ username: name, passwordHash, createdAt: this.now() });
+    return { user: { id, username: name } };
+  }
+}
+```
+
+```js go
+loadFavorites();
+setMode('quote');
+
+// Try the rules in the console (made-up demo values only)
+console.log(validateSignup({ username: 'ab', password: 'short' }));
+const demo = new AccountService({ store: memoryStore(), passwords });
+demo.signup({ username: 'Demo_User', password: 'not-a-real-pass' })
+  .then((r) => console.log('signed up as', r.user.username));
+```
+
+## Step: Logging in, sessions and lockouts
+time: 20
+
+After signing up or logging in, the user gets a **session token**: 256 random bits, written in a URL-safe form. Every later request carries the token, and `userForToken()` finds whose it is.
+
+| Piece | How |
+|---|---|
+| token | `crypto.getRandomValues()`: 32 random bytes, impossible to guess |
+| stored | only a **SHA-256 hash** of the token, so a stolen copy of the data can't be used to log in |
+| lifetime | 30 days; an expired session is deleted when it's next used |
+| log out | delete the session; the token stops working at once |
+
+**Brute force.** Someone could try thousands of passwords. The service counts failed logins per username: after **5** wrong passwords in **15 minutes**, logins for that name are refused with status **429** ("Too many failed attempts. Try again in 12 minutes.") until the window passes. A correct password clears the count.
+
+**Not revealing who has an account.** "Wrong username or password" is the same message whether the username exists or not. And when it doesn't exist, the service still hashes the password before answering, so the response takes the same time either way. Otherwise an attacker could time the replies to find real usernames.
+
+`#startSession`, `#checkLockout` and `#recordFailure` start with `#`, which makes them **private**: only code inside the class can call them.
+
+### Try it
+
+The console signs up a demo user, shows whose token it is, then tries 6 wrong passwords: four "Wrong username or password", then "Too many failed attempts", then 429.
+
+check: js | session tokens | /const\s+tokens\s*=/
+check: js | only a hash of the token is stored | /tokenHash:\s*await\s+this\.tokens\.hash\(\s*token\s*\)/
+check: js | a log-in rule | /async\s+login\s*\(/
+check: js | too many tries locks the name | /new\s+AccountError\(\s*429/
+
+quiz: Why store only a hash of each session token?
+- [ ] Hashes are shorter
+- [x] If the stored data leaks, the hashes can't be used to log in, because the real tokens aren't there
+- [ ] Tokens can't be stored as text
+why: Same idea as passwords: keep only what lets you check a token, not the token itself.
+quiz: Why does login() hash the password even when the username doesn't exist?
+- [ ] To create the account
+- [x] So the reply takes the same time either way, and timing can't reveal which usernames exist
+- [ ] It's a mistake
+why: A fast "no such user" answer would leak that the username is free.
+
+```js accounts
+// Account rules, written so they don't care where data is stored (the real app runs them on a Node server
+// with SQLite, and in the browser for the live demo).
+const MAX_FAILED_LOGINS = 5;
+const LOCKOUT_MINUTES = 15;
+const SESSION_DAYS = 30;
+
+class AccountError extends Error {
+  constructor(status, message, extra = {}) {
+    super(message);
+    this.status = status;          // an HTTP status code: 400 bad input, 401 wrong password, 409 taken, 429 too many tries
+    Object.assign(this, extra);
+  }
+}
+
+// Usernames ignore case: "Anthony" and "anthony" are the same account.
+const normalizeUsername = (name) => String(name ?? '').trim().toLowerCase();
+
+function validateSignup({ username, password }) {
+  const errors = {};
+  const name = normalizeUsername(username);
+  if (!/^[a-z0-9_]{3,20}$/.test(name)) errors.username = 'Use 3-20 letters, numbers or underscores.';
+  const pw = String(password ?? '');
+  if (pw.length < 8) errors.password = 'Use at least 8 characters.';
+  else if (pw.length > 128) errors.password = 'Use 128 characters or fewer.';
+  else if (pw.toLowerCase() === name) errors.password = "Your password can't be your username.";
+  return errors;
+}
+
+// ---- passwords, with the browser's Web Crypto API ----
+const ITERATIONS = 210_000;
+const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const b64ToBytes = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+
+async function pbkdf2(password, salt, iterations) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(password).normalize('NFKC')), 'PBKDF2', false, ['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256));
+}
+
+const passwords = {
+  // a new random salt for every password, so two people with the same password get different hashes
+  async hash(password) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    return `pbkdf2$${ITERATIONS}$${bytesToB64(salt)}$${bytesToB64(await pbkdf2(password, salt, ITERATIONS))}`;
+  },
+  async verify(password, stored) {
+    const [scheme, iterations, salt, hash] = String(stored).split('$');
+    if (scheme !== 'pbkdf2' || !hash) return false;
+    const actual = await pbkdf2(password, b64ToBytes(salt), Number(iterations));
+    const expected = b64ToBytes(hash);
+    // compare every byte, so the time taken doesn't depend on where they differ
+    let diff = actual.length ^ expected.length;
+    for (let i = 0; i < Math.min(actual.length, expected.length); i++) diff |= actual[i] ^ expected[i];
+    return diff === 0;
+  },
+};
+
+// ---- session tokens: 256 random bits; only a SHA-256 hash of each one is stored ----
+const tokens = {
+  create() {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    return bytesToB64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  },
+  async hash(token) {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(token))));
+    return [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
+  },
+};
+
+// Storage in memory, for this guide. The real app swaps in SQLite or IndexedDB with the same methods.
+function memoryStore() {
+  const state = { nextId: 1, users: [], sessions: [], favorites: [], attempts: {} };
+  return {
+    async createUser({ username, passwordHash, createdAt }) {
+      const id = state.nextId++;
+      state.users.push({ id, username, passwordHash, createdAt });
+      return id;
+    },
+    async userByName(name) { return state.users.find((u) => u.username === name) ?? null; },
+    async userById(id) { return state.users.find((u) => u.id === id) ?? null; },
+    async createSession(session) { state.sessions.push({ ...session }); },
+    async session(tokenHash) { return state.sessions.find((s) => s.tokenHash === tokenHash) ?? null; },
+    async deleteSession(tokenHash) { state.sessions = state.sessions.filter((s) => s.tokenHash !== tokenHash); },
+    async attempts(key) { return state.attempts[key] ?? null; },
+    async saveAttempts(key, value) { state.attempts[key] = { ...value }; },
+    async clearAttempts(key) { delete state.attempts[key]; },
+  };
+}
+
+class AccountService {
+  constructor({ store, passwords, tokens, now = () => Date.now() }) {
+    this.store = store;
+    this.passwords = passwords;
+    this.tokens = tokens;
+    this.now = now;
+  }
+
+  async signup({ username, password }) {
+    const errors = validateSignup({ username, password });
+    if (Object.keys(errors).length) throw new AccountError(400, 'Please fix the highlighted fields.', { fields: errors });
+    const name = normalizeUsername(username);
+    if (await this.store.userByName(name)) {
+      throw new AccountError(409, 'That username is taken.', { fields: { username: 'That username is taken.' } });
+    }
+    const passwordHash = await this.passwords.hash(password);
+    const id = await this.store.createUser({ username: name, passwordHash, createdAt: this.now() });
+    return this.#startSession(id, name);
+  }
+
+  async login({ username, password }) {
+    const name = normalizeUsername(username);
+    const key = `login:${name}`;
+    await this.#checkLockout(key);
+    const user = name ? await this.store.userByName(name) : null;
+    // hash even when the user doesn't exist, so the time taken doesn't reveal which usernames exist
+    const ok = user
+      ? await this.passwords.verify(String(password ?? ''), user.passwordHash)
+      : (await this.passwords.hash(String(password ?? '')), false);
+    if (!ok) {
+      const left = await this.#recordFailure(key);
+      throw new AccountError(401, left > 0 ? 'Wrong username or password.' : `Too many failed attempts. Try again in ${LOCKOUT_MINUTES} minutes.`);
+    }
+    await this.store.clearAttempts(key);
+    return this.#startSession(user.id, user.username);
+  }
+
+  async logout(token) {
+    if (token) await this.store.deleteSession(await this.tokens.hash(token));
+  }
+
+  // the signed-in user for a session token, or null; expired sessions are removed
+  async userForToken(token) {
+    if (!token) return null;
+    const tokenHash = await this.tokens.hash(token);
+    const session = await this.store.session(tokenHash);
+    if (!session) return null;
+    if (session.expiresAt <= this.now()) {
+      await this.store.deleteSession(tokenHash);
+      return null;
+    }
+    const user = await this.store.userById(session.userId);
+    return user ? { id: user.id, username: user.username } : null;
+  }
+
+  // ---- helpers (# makes them private to the class) ----
+  async #startSession(userId, username) {
+    const token = this.tokens.create();
+    const expiresAt = this.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
+    await this.store.createSession({ tokenHash: await this.tokens.hash(token), userId, expiresAt });
+    return { token, expiresAt, user: { id: userId, username } };
+  }
+
+  async #checkLockout(key) {
+    const a = await this.store.attempts(key);
+    if (!a) return;
+    const windowMs = LOCKOUT_MINUTES * 60 * 1000;
+    if (this.now() - a.firstAt > windowMs) return this.store.clearAttempts(key);
+    if (a.count >= MAX_FAILED_LOGINS) {
+      const minutes = Math.ceil((a.firstAt + windowMs - this.now()) / 60000);
+      throw new AccountError(429, `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
+    }
+  }
+
+  async #recordFailure(key) {
+    const a = await this.store.attempts(key);
+    const fresh = !a || this.now() - a.firstAt > LOCKOUT_MINUTES * 60 * 1000;
+    const next = fresh ? { count: 1, firstAt: this.now() } : { ...a, count: a.count + 1 };
+    await this.store.saveAttempts(key, next);
+    return MAX_FAILED_LOGINS - next.count;
+  }
+}
+```
+
+```js go
+loadFavorites();
+setMode('quote');
+
+// Try the rules in the console (made-up demo values only)
+const demo = new AccountService({ store: memoryStore(), passwords, tokens });
+(async () => {
+  const s = await demo.signup({ username: 'demo_user', password: 'not-a-real-pass' });
+  console.log('session token', s.token.slice(0, 8) + '…', 'belongs to', (await demo.userForToken(s.token)).username);
+  for (let i = 0; i < 6; i++) await demo.login({ username: 'demo_user', password: 'wrong guess' }).catch((e) => console.log(e.status, e.message));
+})();
+```
+
 ## Finish
 
 ### What you learned
