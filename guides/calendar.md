@@ -2009,6 +2009,59 @@ $('export').onclick = () => {
 };
 ```
 
+## Session: How the real project is built
+
+## Step: Weather, tests and how the files fit together
+time: 10
+kind: read
+
+You've now built nearly everything in my [Task Calendar](https://theoyanvno.github.io/task-calendar/). The real project splits it into ES modules:
+
+| File | What it does |
+|---|---|
+| `src/tasks.js` | dates, the month grid, repeat rules, sorting, completion, .ics and Google Calendar links |
+| `src/holidays.js` | US holidays for any year |
+| `src/themes.js` | the 12 themes, plus a contrast checker |
+| `src/month.js` | the This month panel |
+| `src/weather.js` | weather codes, Open-Meteo URLs, picking the right city |
+| `src/app.js` | drawing, events, saving, the clock and the weather widget |
+
+Everything except `app.js` is plain logic with no page code, so it runs in Node for tests.
+
+**Weather.** The real app has a live clock and the current weather in the top corner. It uses [Open-Meteo](https://open-meteo.com/), a free weather service that needs no API key, and gets your location with permission (`navigator.geolocation`) or from a city you type. Typing "Springfield, IL" has to pick the right Springfield out of dozens, so `pickPlace()` prefers a result in the state you named:
+
+```js
+export function pickPlace(results, hint = '') {
+  if (!results?.length) return null;
+  const want = STATES[hint] ?? hint;
+  const match = want && results.find((r) => [r.admin1, r.country, r.country_code].some((v) => v && v.toLowerCase() === want));
+  const r = match || results.find((x) => x.country_code === 'US') || results[0];
+  const region = r.country_code === 'US' ? r.admin1 : r.country;
+  return { name: region ? `${r.name}, ${region}` : r.name, lat: r.latitude, lon: r.longitude };
+}
+```
+
+The result is saved with the time it was fetched, and the app only asks again after 15 minutes, which is how often Open-Meteo updates.
+
+**Readable themes.** Every theme's colors have to stay readable. A test computes the WCAG contrast ratio for white text on each accent color, dark text on each tint, and dark text on each dark-mode color, and checks every one is at least 4.5:1, the AA standard, so a new theme can't quietly make the buttons hard to read.
+
+**Tests.** 24 tests run with `npm test`. Two of the holiday tests:
+
+```js
+test('weekend holidays get an observed weekday', () => {
+  // July 4, 2026 is a Saturday: observed Friday the 3rd
+  assert.deepStrictEqual(names('2026-07-03'), ['Independence Day (observed)']);
+  assert.ok(isDayOff('2026-07-03'));
+});
+
+test('Easter for known years', () => {
+  assert.strictEqual(toKey(easter(2024)), '2024-03-31');
+  assert.strictEqual(toKey(easter(2026)), '2026-04-05');
+});
+```
+
+The real app also has a **dark mode** that follows your system setting, with a toggle, and remembers whether the monthly theme is on.
+
 ## Finish
 
 ### What you learned
