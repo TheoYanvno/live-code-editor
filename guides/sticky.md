@@ -1764,6 +1764,357 @@ function render() {
 document.getElementById('firstNote').addEventListener('click', () => addNote());
 ```
 
+## Session: Remembering your notes
+
+## Step: Saving in localStorage
+time: 15
+
+Notes should still be there tomorrow. The browser version keeps them in **`localStorage`**: a small store of text, per website, that survives closing the tab.
+
+- `save()` writes `{ app, version, notes }` as JSON. It waits **250 milliseconds** after the last change (`clearTimeout` + `setTimeout`), so typing a sentence writes once, not once per key. This is called **debouncing**.
+- `load()` reads it back. If there's nothing saved, the app starts with one welcome note.
+- `update()`, `addNote()` and `removeNote()` all call `save()`.
+
+**Storage can fail**, so both are wrapped in `try`/`catch`. Private browsing, a full disk, a browser setting or a sandboxed page can all make `localStorage` throw. When it does, the app keeps working in memory instead of breaking.
+
+This editor's preview is exactly one of those cases: it runs your page in a sandbox where storage is blocked, so here the notes reset when the preview reloads, and nothing crashes. To see them remembered, run your finished page from a file or a local server, or try the [live demo](https://theoyanvno.github.io/sticky-notes/app/).
+
+The saved object has a `version` number. That's for the future: if the format ever changes, the app can tell an old file from a new one (the real app does exactly that with notes from version 1.0).
+
+check: js | a save() function | /function\s+save\s*\(/
+check: js | saving waits for a pause | /clearTimeout\(\s*saveTimer\s*\)/
+check: js | notes are written to localStorage | /localStorage\.setItem\(/
+check: js | notes load at start | /let\s+notes\s*=\s*load\(\)/
+
+quiz: Why does save() wait 250 ms instead of saving on every change?
+- [x] Typing makes a change per key; waiting for a pause writes once per burst instead
+- [ ] localStorage only works every 250 ms
+- [ ] To lose fewer notes
+why: That's debouncing: each new change restarts the timer.
+quiz: What happens in this guide's preview when localStorage is blocked?
+- [ ] The page crashes
+- [x] The catch block keeps the app working in memory; notes just aren't remembered
+- [ ] The notes are saved somewhere else
+why: Code that might fail for reasons outside your control should fail gracefully.
+
+```js storage
+const KEY = 'sticky-notes-guide';
+let saveTimer = null;
+
+// Saves a quarter of a second after the last change, so typing doesn't write on every key.
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ app: 'sticky-notes', version: 2, notes }));
+    } catch { /* storage blocked (private mode, a sandbox): keep working in memory */ }
+  }, 250);
+}
+
+function load() {
+  try {
+    const saved = localStorage.getItem(KEY);
+    if (saved) return JSON.parse(saved).notes;
+  } catch { /* blocked or damaged: start fresh */ }
+  const first = createNote([]);
+  return [{ ...first, body: 'Hi! Pick a color at the top, ☑ makes a checklist, + makes another note (up to 3).' }];
+}
+```
+
+```js ui
+const desk = document.getElementById('desk');
+let notes = load();
+
+const area = () => ({ x: 0, y: 0, width: Math.max(desk.clientWidth, SIZE.w + 80), height: Math.max(desk.clientHeight, SIZE.h + 80) });
+
+// Every change goes through here: replace the note with a changed copy, then redraw.
+function update(id, fn, rerender = true) {
+  notes = notes.map((n) => (n.id === id ? fn(n) : n));
+  save();
+  if (rerender) keepFocus(render);
+}
+
+function addNote(fromId) {
+  const from = notes.find((n) => n.id === fromId);
+  const note = createNote(notes, { from, area: area() });
+  if (!note) return;                     // already three
+  notes = [...notes, note];
+  save();
+  render();
+  desk.querySelector(`[data-id="${note.id}"] textarea`)?.focus();
+}
+
+function removeNote(id) {
+  notes = remove(notes, id);
+  save();
+  render();
+}
+
+// What each button and field on a note does.
+function actionsFor(note) {
+  const change = (fn, rerender = true) => update(note.id, fn, rerender);
+  return {
+    color: (color) => change((n) => updateNote(n, { color })),
+    text: (body) => change((n) => updateNote(n, { body }), false),   // typing: save it, but don't redraw
+    add: () => addNote(note.id),
+    remove: () => removeNote(note.id),
+    list: (on) => change((n) => setList(n, on)),
+    addItem: (text) => change((n) => addItem(n, text)),
+    toggleItem: (itemId) => change((n) => toggleItem(n, itemId)),
+    editItem: (itemId, text) => change((n) => editItem(n, itemId, text), false),
+    removeItem: (itemId) => change((n) => removeItem(n, itemId)),
+  };
+}
+
+// Dragging a note by its top bar (but not by its buttons).
+function draggable(card, note) {
+  const bar = card.querySelector('.note-bar');
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    e.preventDefault();
+    notes = toFront(notes, note.id);
+    desk.append(card);                                   // on top while dragging
+    const start = { x: e.clientX, y: e.clientY, left: note.x, top: note.y };
+    card.classList.add('dragging');
+    bar.setPointerCapture(e.pointerId);                 // keep getting moves even off the bar
+    const move = (ev) => {
+      const a = area();
+      // keep the whole note on the desk
+      const x = Math.max(0, Math.min(start.left + ev.clientX - start.x, a.width - card.offsetWidth));
+      const y = Math.max(0, Math.min(start.top + ev.clientY - start.y, a.height - Math.min(card.offsetHeight, a.height)));
+      card.style.left = `${x}px`;
+      card.style.top = `${y}px`;
+    };
+    const up = () => {
+      card.classList.remove('dragging');
+      bar.removeEventListener('pointermove', move);
+      update(note.id, (n) => updateNote(n, { x: parseFloat(card.style.left), y: parseFloat(card.style.top) }), false);
+    };
+    bar.addEventListener('pointermove', move);
+    bar.addEventListener('pointerup', up, { once: true });
+    bar.addEventListener('pointercancel', up, { once: true });
+  });
+  // Resizing uses the grip the browser draws (CSS resize); remember the new size when it changes
+  new ResizeObserver(() => {
+    const w = card.offsetWidth;
+    const h = card.offsetHeight;
+    const current = notes.find((n) => n.id === note.id);
+    if (current && (Math.abs(current.w - w) > 1 || Math.abs(current.h - h) > 1)) {
+      update(note.id, (n) => updateNote(n, { w, h }), false);
+    }
+  }).observe(card);
+}
+
+function render() {
+  desk.replaceChildren(...notes.map((note) => {
+    const card = renderNote(note, actionsFor(note), { canAdd: canAdd(notes) });
+    Object.assign(card.style, { left: `${note.x}px`, top: `${note.y}px`, width: `${note.w}px`, height: `${note.h}px` });
+    draggable(card, note);
+    return card;
+  }));
+  document.getElementById('empty').hidden = notes.length > 0;
+}
+
+document.getElementById('firstNote').addEventListener('click', () => addNote());
+```
+
+## Step: Never trust saved data
+time: 15
+
+Whatever comes out of storage might be old, edited by hand, or damaged. Instead of trusting it, **`normalize()`** rebuilds clean data from anything:
+
+| Problem | What `cleanNote()` does |
+|---|---|
+| missing or strange id | drops the note |
+| text that isn't a string, or is huge | empty string, or cut to 20,000 characters |
+| unknown color | the first color |
+| position or size out of range, or not a number | clamped, or a default |
+| checklist items without ids | dropped; at most 500 kept |
+| the same note twice | only the first is kept |
+| more than three notes | the three edited most recently stay |
+
+Helpers make each rule one line: `text()` for strings, `num()` for clamped numbers, `validId()` for ids (letters, digits, `_` and `-`, up to 64). `load()` now returns `normalize(JSON.parse(saved)).notes`, so the rest of the app can assume every note is valid.
+
+**Other tabs.** If the app is open in two tabs, a change in one should show in the other. The browser fires a **`storage`** event in every *other* tab when `localStorage` changes, so the app listens for its own key and reloads its notes.
+
+### Try it
+
+In the console, try `normalize({ notes: [{ id: 'a', color: 'purple', x: 1e9 }, { id: 'a' }, null] })`: one note, yellow, with `x` clamped to 5,000.
+
+check: js | a normalize() function | /function\s+normalize\s*\(/
+check: js | numbers are clamped | /const\s+num\s*=/
+check: js | loading repairs the data | /return\s+normalize\(\s*JSON\.parse\(\s*saved\s*\)\s*\)\.notes/
+check: js | other tabs stay in sync | /addEventListener\(\s*['"]storage['"]/
+
+quiz: Why rebuild saved notes field by field instead of using JSON.parse() directly?
+- [ ] JSON.parse is slow
+- [x] The saved text could be old, hand-edited or damaged, and one bad field shouldn't break the whole app
+- [ ] JSON can't store notes
+why: Validating at the edge means the rest of the code can trust every note it sees.
+quiz: When does the storage event fire?
+- [ ] In the same tab after every save
+- [x] In the other tabs of the same site when localStorage changes
+- [ ] When the page loads
+why: It's how tabs tell each other that the shared storage changed.
+
+```js storage
+// Saved data can be old, hand-edited or damaged. Turn anything into valid notes, dropping what can't be fixed.
+const text = (v, max = 20000) => (typeof v === 'string' ? v.slice(0, max) : '');
+const num = (v, fallback, min, max) => (Number.isFinite(v) ? Math.round(Math.min(max, Math.max(min, v))) : fallback);
+const validId = (v) => (typeof v === 'string' && /^[\w-]{1,64}$/.test(v) ? v : null);
+
+function cleanNote(n) {
+  if (!n || typeof n !== 'object' || !validId(n.id)) return null;
+  const now = stamp();
+  const checklist = Array.isArray(n.checklist)
+    ? n.checklist.filter((i) => i && validId(i.id)).slice(0, 500).map((i) => ({ id: i.id, text: text(i.text, 500), done: i.done === true }))
+    : [];
+  return {
+    id: n.id,
+    body: text(n.body),
+    list: n.list === true,
+    checklist,
+    color: COLORS.includes(n.color) ? n.color : COLORS[0],
+    x: num(n.x, 40, 0, 5000), y: num(n.y, 40, 0, 5000),
+    w: num(n.w, SIZE.w, SIZE.minW, 1200), h: num(n.h, SIZE.h, SIZE.minH, 1200),
+    created: typeof n.created === 'string' ? n.created : now,
+    updated: typeof n.updated === 'string' ? n.updated : now,
+  };
+}
+
+// Only three notes are allowed; if a file has more, the three edited most recently stay.
+function normalize(raw) {
+  const seen = new Set();
+  let list = (Array.isArray(raw?.notes) ? raw.notes : []).map(cleanNote).filter((n) => n && !seen.has(n.id) && seen.add(n.id));
+  if (list.length > MAX_NOTES) {
+    const keep = new Set([...list].sort((a, b) => Date.parse(b.updated) - Date.parse(a.updated)).slice(0, MAX_NOTES).map((n) => n.id));
+    list = list.filter((n) => keep.has(n.id));
+  }
+  return { app: 'sticky-notes', version: 2, notes: list };
+}
+
+const KEY = 'sticky-notes-guide';
+let saveTimer = null;
+
+// Saves a quarter of a second after the last change, so typing doesn't write on every key.
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ app: 'sticky-notes', version: 2, notes }));
+    } catch { /* storage blocked (private mode, a sandbox): keep working in memory */ }
+  }, 250);
+}
+
+function load() {
+  try {
+    const saved = localStorage.getItem(KEY);
+    if (saved) return normalize(JSON.parse(saved)).notes;
+  } catch { /* blocked or damaged: start fresh */ }
+  const first = createNote([]);
+  return [{ ...first, body: 'Hi! Pick a color at the top, ☑ makes a checklist, + makes another note (up to 3).' }];
+}
+```
+
+```js ui
+const desk = document.getElementById('desk');
+let notes = load();
+
+const area = () => ({ x: 0, y: 0, width: Math.max(desk.clientWidth, SIZE.w + 80), height: Math.max(desk.clientHeight, SIZE.h + 80) });
+
+// Every change goes through here: replace the note with a changed copy, then redraw.
+function update(id, fn, rerender = true) {
+  notes = notes.map((n) => (n.id === id ? fn(n) : n));
+  save();
+  if (rerender) keepFocus(render);
+}
+
+function addNote(fromId) {
+  const from = notes.find((n) => n.id === fromId);
+  const note = createNote(notes, { from, area: area() });
+  if (!note) return;                     // already three
+  notes = [...notes, note];
+  save();
+  render();
+  desk.querySelector(`[data-id="${note.id}"] textarea`)?.focus();
+}
+
+function removeNote(id) {
+  notes = remove(notes, id);
+  save();
+  render();
+}
+
+// What each button and field on a note does.
+function actionsFor(note) {
+  const change = (fn, rerender = true) => update(note.id, fn, rerender);
+  return {
+    color: (color) => change((n) => updateNote(n, { color })),
+    text: (body) => change((n) => updateNote(n, { body }), false),   // typing: save it, but don't redraw
+    add: () => addNote(note.id),
+    remove: () => removeNote(note.id),
+    list: (on) => change((n) => setList(n, on)),
+    addItem: (text) => change((n) => addItem(n, text)),
+    toggleItem: (itemId) => change((n) => toggleItem(n, itemId)),
+    editItem: (itemId, text) => change((n) => editItem(n, itemId, text), false),
+    removeItem: (itemId) => change((n) => removeItem(n, itemId)),
+  };
+}
+
+// Dragging a note by its top bar (but not by its buttons).
+function draggable(card, note) {
+  const bar = card.querySelector('.note-bar');
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    e.preventDefault();
+    notes = toFront(notes, note.id);
+    desk.append(card);                                   // on top while dragging
+    const start = { x: e.clientX, y: e.clientY, left: note.x, top: note.y };
+    card.classList.add('dragging');
+    bar.setPointerCapture(e.pointerId);                 // keep getting moves even off the bar
+    const move = (ev) => {
+      const a = area();
+      // keep the whole note on the desk
+      const x = Math.max(0, Math.min(start.left + ev.clientX - start.x, a.width - card.offsetWidth));
+      const y = Math.max(0, Math.min(start.top + ev.clientY - start.y, a.height - Math.min(card.offsetHeight, a.height)));
+      card.style.left = `${x}px`;
+      card.style.top = `${y}px`;
+    };
+    const up = () => {
+      card.classList.remove('dragging');
+      bar.removeEventListener('pointermove', move);
+      update(note.id, (n) => updateNote(n, { x: parseFloat(card.style.left), y: parseFloat(card.style.top) }), false);
+    };
+    bar.addEventListener('pointermove', move);
+    bar.addEventListener('pointerup', up, { once: true });
+    bar.addEventListener('pointercancel', up, { once: true });
+  });
+  // Resizing uses the grip the browser draws (CSS resize); remember the new size when it changes
+  new ResizeObserver(() => {
+    const w = card.offsetWidth;
+    const h = card.offsetHeight;
+    const current = notes.find((n) => n.id === note.id);
+    if (current && (Math.abs(current.w - w) > 1 || Math.abs(current.h - h) > 1)) {
+      update(note.id, (n) => updateNote(n, { w, h }), false);
+    }
+  }).observe(card);
+}
+
+function render() {
+  desk.replaceChildren(...notes.map((note) => {
+    const card = renderNote(note, actionsFor(note), { canAdd: canAdd(notes) });
+    Object.assign(card.style, { left: `${note.x}px`, top: `${note.y}px`, width: `${note.w}px`, height: `${note.h}px` });
+    draggable(card, note);
+    return card;
+  }));
+  document.getElementById('empty').hidden = notes.length > 0;
+}
+
+document.getElementById('firstNote').addEventListener('click', () => addNote());
+// Another tab changed the notes: show the latest
+window.addEventListener('storage', (e) => { if (e.key === KEY) { notes = load(); keepFocus(render); } });
+```
+
 ## Finish
 
 ### What you learned
