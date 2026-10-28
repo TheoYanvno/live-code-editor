@@ -11,7 +11,7 @@ export const GUIDES = [
     summary: 'Dates and a month grid, repeating tasks, drag to reschedule, US holidays with monthly themes, a This month panel, locations, weather, email reminders and .ics export.', load: () => import('./calendar.js') },
   { id: 'sudoku', title: 'Sudoku Solver', emoji: '🔢', level: 'Intermediate', time: 'about 3 hours', steps: 12, available: true,
     summary: 'A 9 x 9 grid, rule checks, a solver that explains every step and backtrack, and making puzzles at three levels.', load: () => import('./sudoku.js') },
-  { id: 'sticky', title: 'Sticky Notes', emoji: '🗒️', level: 'Intermediate', time: 'about 3 hours', steps: 6, available: true,
+  { id: 'sticky', title: 'Sticky Notes', emoji: '🗒️', level: 'Intermediate', time: 'about 3 hours', steps: 8, available: true,
     summary: 'Notes in four colors with a checklist mode, up to three at a time, and the Electron app that puts each one on the desktop by itself.', load: () => import('./sticky.js') },
   { id: 'bonfire', title: 'Bonfire Notes (blog)', emoji: '🔥', level: 'Intermediate', time: 'about 2 hours', steps: 0, available: false,
     summary: 'Markdown posts, templates, a guides hub, and the Python static site generator that turns them into pages.', load: () => import('./bonfire.js') },

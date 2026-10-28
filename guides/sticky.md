@@ -1257,6 +1257,513 @@ function render() {
 document.getElementById('firstNote').addEventListener('click', () => addNote());
 ```
 
+## Session: Move and resize
+
+## Step: Dragging a note by its top bar
+time: 20
+
+Notes are dragged by their colored top bar, using **pointer events**, which work the same for a mouse, a pen and a finger.
+
+```svg Dragging: remember where it started, move by how far the pointer went, save on release
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 160" font-family="sans-serif"><rect x="20" y="30" width="110" height="80" rx="4" fill="#cfe6ff" stroke="#7aa6d6" stroke-dasharray="4 3"/><rect x="20" y="30" width="110" height="18" fill="#a8d0fb" opacity="0.6"/><rect x="200" y="60" width="110" height="80" rx="4" fill="#cfe6ff" stroke="#5a7a9a"/><rect x="200" y="60" width="110" height="18" fill="#a8d0fb"/><circle cx="60" cy="39" r="4" fill="#1d4ed8"/><circle cx="240" cy="69" r="4" fill="#1d4ed8"/><line x1="64" y1="41" x2="236" y2="67" stroke="#1d4ed8" stroke-width="2" stroke-dasharray="5 3"/><text x="40" y="22" font-size="11">pointerdown: remember start</text><text x="150" y="44" font-size="11" fill="#1d4ed8">pointermove: left = start + (now - start)</text><text x="320" y="100" font-size="11">pointerup:</text><text x="320" y="114" font-size="11">save x and y</text><text x="215" y="154" text-anchor="middle" font-size="11" fill="#475569">setPointerCapture keeps the moves coming even if the pointer slips off the bar</text></svg>
+```
+
+| Event | What happens |
+|---|---|
+| `pointerdown` on the bar | ignore it if it's a button or not the main mouse button; bring the note to the front; remember where the pointer and the note started |
+| `pointermove` | new position = start position + how far the pointer has moved, kept inside the desk |
+| `pointerup` / `pointercancel` | save the new `x` and `y` |
+
+Three details make it feel right:
+
+- **`setPointerCapture()`** sends every move to the bar until you let go, even if the pointer races ahead of the note or leaves the window.
+- **Clamping** with `Math.max(0, Math.min(…))` keeps the note on the desk, so it can never be dragged out of reach.
+- **`toFront()`** moves the note to the end of the array, and the last note is drawn on top. During the drag, `desk.append(card)` moves the element to the end too, without a full redraw.
+
+The note moves by setting `card.style.left` and `top` directly during the drag; only on release does the data change (with no redraw, since the note is already where it should be). CSS `touch-action: none` on the bar stops a phone from scrolling the page instead of dragging.
+
+### Try it
+
+Drag notes around and stack them; the one you drag comes to the front.
+
+check: js | a draggable() function | /function\s+draggable\s*\(/
+check: js | moves follow the pointer even off the bar | /setPointerCapture\(\s*e\.pointerId\s*\)/
+check: js | the note stays on the desk | /Math\.max\(\s*0\s*,\s*Math\.min\(/
+check: js | the dragged note comes to the front | /function\s+toFront\s*\(/
+
+quiz: What does setPointerCapture() fix?
+- [x] Moving the pointer quickly off the bar would otherwise stop the drag
+- [ ] It makes the note snap to a grid
+- [ ] It saves the position
+why: With capture, every move goes to the bar until the pointer is released, wherever it is.
+quiz: Why is the data only updated on pointerup, not on every pointermove?
+- [x] Moving the element directly is enough while dragging; one save at the end avoids dozens of updates per second
+- [ ] pointermove can't change data
+- [ ] To make dragging slower
+why: The style follows the pointer cheaply, and the final position is recorded once.
+
+```js notes
+// Sticky notes are plain objects, changed only through these functions.
+const COLORS = ['yellow', 'pink', 'blue', 'green'];
+const SIZE = { w: 260, h: 260, minW: 200, minH: 160 };
+const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+const stamp = () => new Date().toISOString();
+const MAX_NOTES = 3;
+const canAdd = (notes) => notes.length < MAX_NOTES;
+
+// The first color no other note is using, so three notes are easy to tell apart.
+function freeColor(notes) {
+  return COLORS.find((c) => !notes.some((n) => n.color === c)) ?? COLORS[0];
+}
+
+// Where a new note goes: cascading down from the top-left, skipping spots another note already uses.
+function nextPosition(notes) {
+  const free = (x, y) => !notes.some((n) => Math.abs(n.x - x) < 40 && Math.abs(n.y - y) < 40);
+  for (let i = 0; i < 12; i++) {
+    const x = 40 + i * 36;
+    const y = 40 + i * 36;
+    if (free(x, y)) return { x, y };
+  }
+  return { x: 40, y: 40 };
+}
+
+// A new empty note, or null when three already exist.
+function createNote(notes, options = {}) {
+  if (!canAdd(notes)) return null;
+  const t = stamp();
+  return {
+    id: uid(), body: '', list: false, checklist: [],
+    color: freeColor(notes),
+    ...nextPosition(notes, options), w: SIZE.w, h: SIZE.h, created: t, updated: t,
+  };
+}
+
+// Returns a changed COPY of the note, with its size and position kept at usable values.
+function updateNote(note, patch) {
+  const next = { ...note, ...patch, updated: stamp() };
+  next.x = Math.round(next.x);
+  next.y = Math.round(next.y);
+  next.w = Math.max(SIZE.minW, Math.round(next.w));
+  next.h = Math.max(SIZE.minH, Math.round(next.h));
+  if (!COLORS.includes(next.color)) next.color = note.color;
+  return next;
+}
+
+const remove = (list, id) => list.filter((x) => x.id !== id);
+
+// True when the note has nothing in it, so deleting it needs no second click.
+const isEmpty = (note) => !note.body.trim() && !note.checklist.some((i) => i.text.trim());
+
+// Turns the checklist on or off without losing anything: lines become items, and items become lines again.
+function setList(note, on) {
+  if (on === note.list) return note;
+  if (on) {
+    const lines = note.body.split('\n').map((l) => l.trim()).filter(Boolean);
+    const items = [...note.checklist, ...lines.map((text) => ({ id: uid(), text, done: false }))];
+    return updateNote(note, { list: true, checklist: items, body: '' });
+  }
+  const text = note.checklist.map((i) => i.text).filter((t) => t.trim()).join('\n');
+  const body = [note.body.trim(), text].filter(Boolean).join('\n');
+  return updateNote(note, { list: false, checklist: [], body });
+}
+
+// Checklist items: each change returns a new note with a new checklist array.
+function addItem(note, text) {
+  const clean = text.trim();
+  if (!clean) return note;
+  return updateNote(note, { checklist: [...note.checklist, { id: uid(), text: clean, done: false }] });
+}
+const toggleItem = (note, itemId) =>
+  updateNote(note, { checklist: note.checklist.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)) });
+const editItem = (note, itemId, text) =>
+  updateNote(note, { checklist: note.checklist.map((i) => (i.id === itemId ? { ...i, text } : i)) });
+const removeItem = (note, itemId) =>
+  updateNote(note, { checklist: note.checklist.filter((i) => i.id !== itemId) });
+
+function progress(note) {
+  const total = note.checklist.length;
+  const done = note.checklist.filter((i) => i.done).length;
+  return { done, total, label: total ? `${done}/${total}` : '' };
+}
+
+// Brings a note to the front: the last one in the list is drawn on top.
+function toFront(notes, id) {
+  const note = notes.find((n) => n.id === id);
+  return note ? [...remove(notes, id), note] : notes;
+}
+```
+
+```js ui
+const desk = document.getElementById('desk');
+let notes = [createNote([])];
+
+const area = () => ({ x: 0, y: 0, width: Math.max(desk.clientWidth, SIZE.w + 80), height: Math.max(desk.clientHeight, SIZE.h + 80) });
+
+// Every change goes through here: replace the note with a changed copy, then redraw.
+function update(id, fn, rerender = true) {
+  notes = notes.map((n) => (n.id === id ? fn(n) : n));
+  if (rerender) keepFocus(render);
+}
+
+function addNote(fromId) {
+  const note = createNote(notes);
+  if (!note) return;                     // already three
+  notes = [...notes, note];
+  render();
+  desk.querySelector(`[data-id="${note.id}"] textarea`)?.focus();
+}
+
+function removeNote(id) {
+  notes = remove(notes, id);
+  render();
+}
+
+// What each button and field on a note does.
+function actionsFor(note) {
+  const change = (fn, rerender = true) => update(note.id, fn, rerender);
+  return {
+    color: (color) => change((n) => updateNote(n, { color })),
+    text: (body) => change((n) => updateNote(n, { body }), false),   // typing: save it, but don't redraw
+    add: () => addNote(note.id),
+    remove: () => removeNote(note.id),
+    list: (on) => change((n) => setList(n, on)),
+    addItem: (text) => change((n) => addItem(n, text)),
+    toggleItem: (itemId) => change((n) => toggleItem(n, itemId)),
+    editItem: (itemId, text) => change((n) => editItem(n, itemId, text), false),
+    removeItem: (itemId) => change((n) => removeItem(n, itemId)),
+  };
+}
+
+// Dragging a note by its top bar (but not by its buttons).
+function draggable(card, note) {
+  const bar = card.querySelector('.note-bar');
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    e.preventDefault();
+    notes = toFront(notes, note.id);
+    desk.append(card);                                   // on top while dragging
+    const start = { x: e.clientX, y: e.clientY, left: note.x, top: note.y };
+    card.classList.add('dragging');
+    bar.setPointerCapture(e.pointerId);                 // keep getting moves even off the bar
+    const move = (ev) => {
+      const a = area();
+      // keep the whole note on the desk
+      const x = Math.max(0, Math.min(start.left + ev.clientX - start.x, a.width - card.offsetWidth));
+      const y = Math.max(0, Math.min(start.top + ev.clientY - start.y, a.height - Math.min(card.offsetHeight, a.height)));
+      card.style.left = `${x}px`;
+      card.style.top = `${y}px`;
+    };
+    const up = () => {
+      card.classList.remove('dragging');
+      bar.removeEventListener('pointermove', move);
+      update(note.id, (n) => updateNote(n, { x: parseFloat(card.style.left), y: parseFloat(card.style.top) }), false);
+    };
+    bar.addEventListener('pointermove', move);
+    bar.addEventListener('pointerup', up, { once: true });
+    bar.addEventListener('pointercancel', up, { once: true });
+  });
+}
+
+function render() {
+  desk.replaceChildren(...notes.map((note) => {
+    const card = renderNote(note, actionsFor(note), { canAdd: canAdd(notes) });
+    Object.assign(card.style, { left: `${note.x}px`, top: `${note.y}px`, width: `${note.w}px`, height: `${note.h}px` });
+    draggable(card, note);
+    return card;
+  }));
+  document.getElementById('empty').hidden = notes.length > 0;
+}
+
+document.getElementById('firstNote').addEventListener('click', () => addNote());
+```
+
+## Step: Resizing, and where new notes go
+time: 15
+
+**Resizing** needs almost no code: CSS `resize: both` makes the browser draw a grip in the note's bottom corner, and `min-width` / `min-height` stop a note getting too small to use. The app only has to *notice* the new size, and that's what a **`ResizeObserver`** is for: it calls back whenever the element's size changes, whatever caused it.
+
+The observer compares the card's size with the saved `w` and `h`, and saves only when they differ by more than a pixel. Rounding means tiny differences come up all the time; without that check, every redraw would trigger a save.
+
+**Placing new notes.** Now that notes can be anywhere, cascading from the top-left isn't good enough. `nextPosition()` gets the note the + was pressed on (`from`) and the visible `area`, and tries, in order:
+
+| Try | Where |
+|---|---|
+| 1 | to the right of that note |
+| 2 | below it |
+| 3 | to its left |
+| 4 | slightly down and right of it |
+| then | the cascade from the top-left |
+
+Each spot must **fit** in the visible area and be **free** (not within 40 pixels of another note). That's the same function the desktop app uses, with the screen as the area; it even works on a second monitor, because the area can start at any `x` and `y`.
+
+### Try it
+
+Resize a note from its corner, then press + on it: the new note appears beside it. Move a note to the right edge and press +: the new one goes below instead.
+
+check: css | the browser's resize grip | /resize:\s*both/ | Add .note { resize: both; min-width: 200px; min-height: 160px; }
+check: js | new sizes are noticed | /new\s+ResizeObserver\(/
+check: js | new notes try the spot beside the one + was pressed on | /from\.x\s*\+\s*from\.w\s*\+\s*gap/
+check: js | they must fit on screen | /const\s+fits\s*=/
+
+quiz: Why does the ResizeObserver ignore differences of a pixel or less?
+- [x] Rounding makes tiny differences constantly, and saving each one would cause a stream of pointless saves
+- [ ] Pixels can't be compared
+- [ ] ResizeObserver is inaccurate
+why: Only real resizes should be saved.
+quiz: A note sits at the right edge of the screen. Where does + put the new note?
+- [ ] Off screen to the right
+- [x] Below it, because "to the right" doesn't fit
+- [ ] On top of it
+why: Each candidate spot is checked with fits() and free(); the first that passes wins.
+
+```css base
+* { box-sizing: border-box; }
+:root {
+  --yellow: #fff3a3; --yellow-bar: #f7e36b;
+  --pink: #ffd3e1;   --pink-bar: #f9aec6;
+  --blue: #cfe6ff;   --blue-bar: #a8d0fb;
+  --green: #d4f5cf;  --green-bar: #a9e5a0;
+}
+body { margin: 0; height: 100vh; display: flex; flex-direction: column; font: 15px/1.45 system-ui, sans-serif; background: #ece6da; color: #2c2620; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+[hidden] { display: none !important; }
+.top { padding: 8px 16px; }
+.top h1 { margin: 0; font-size: 1.2rem; }
+.muted { margin: 2px 0 0; color: #6b6257; font-size: 13px; }
+.desk { position: relative; flex: 1; overflow: hidden; }
+.empty { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; color: #6b6257; pointer-events: none; }
+.empty button { pointer-events: auto; justify-self: center; padding: 8px 14px; border: 0; border-radius: 10px; background: #c2410c; color: #fff; font-weight: 600; }
+
+/* A note: its color comes from two custom properties set by .note-<color> */
+.note { position: absolute; display: flex; flex-direction: column; background: var(--note); border-radius: 4px 4px 16px 4px;
+        box-shadow: 0 1px 2px rgba(60, 40, 10, .12), 0 8px 22px rgba(60, 40, 10, .14); overflow: hidden; }
+.note-yellow { --note: var(--yellow); --bar: var(--yellow-bar); }
+.note-pink   { --note: var(--pink);   --bar: var(--pink-bar); }
+.note-blue   { --note: var(--blue);   --bar: var(--blue-bar); }
+.note-green  { --note: var(--green);  --bar: var(--green-bar); }
+.note.dragging { box-shadow: 0 14px 40px rgba(60, 40, 10, .3); }
+.note-bar { display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 9px; background: var(--bar); cursor: grab; user-select: none; touch-action: none; }
+.swatches { display: flex; gap: 6px; }
+.swatch { width: 16px; height: 16px; padding: 0; border-radius: 50%; border: 1px solid rgba(0, 0, 0, .28); }
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--bar), 0 0 0 3.5px #2c2620; }
+.swatch-yellow { background: #f7e36b; } .swatch-pink { background: #f9aec6; }
+.swatch-blue { background: #a8d0fb; } .swatch-green { background: #a9e5a0; }
+.spacer { flex: 1; }
+.progress { font-size: 12px; font-weight: 600; background: rgba(255, 255, 255, .55); border-radius: 999px; padding: 0 7px; }
+.icon { border: 0; background: none; padding: 3px 6px; border-radius: 6px; font-size: 15px; line-height: 1; opacity: .72; }
+.icon:hover:not(:disabled) { opacity: 1; background: rgba(0, 0, 0, .09); }
+.icon[aria-pressed="true"] { opacity: 1; background: rgba(0, 0, 0, .12); }
+.icon:disabled { opacity: .3; cursor: not-allowed; }
+.icon.add { font-size: 20px; font-weight: 600; padding: 0 7px 2px; }
+.icon.small { font-size: 11px; }
+.icon.delete.confirm { opacity: 1; background: #b42318; color: #fff; font-size: 12px; font-weight: 600; }
+.note-content { flex: 1; display: flex; flex-direction: column; overflow: auto; padding: 8px 12px 12px; }
+.note-body, .item-text, .add-item input { border: 0; background: transparent; width: 100%; }
+.note-body { flex: 1; resize: none; padding: 0; line-height: 1.5; }
+.note input:focus, .note textarea:focus { outline: none; }
+.checklist { list-style: none; margin: 0; padding: 0; }
+.checklist li { display: flex; align-items: center; gap: 7px; padding: 1px 0; }
+.checklist li.done .item-text { text-decoration: line-through; opacity: .55; }
+.checklist input[type="checkbox"] { width: 16px; height: 16px; accent-color: #2c2620; flex: none; margin: 0; }
+.add-item input { padding: 4px 0 4px 23px; font-size: 14px; }
+
+/* The browser draws a resize grip in the bottom corner; min sizes keep the note usable */
+.note { resize: both; min-width: 200px; min-height: 160px; }
+```
+
+```js notes
+// Sticky notes are plain objects, changed only through these functions.
+const COLORS = ['yellow', 'pink', 'blue', 'green'];
+const SIZE = { w: 260, h: 260, minW: 200, minH: 160 };
+const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+const stamp = () => new Date().toISOString();
+const MAX_NOTES = 3;
+const canAdd = (notes) => notes.length < MAX_NOTES;
+
+// The first color no other note is using, so three notes are easy to tell apart.
+function freeColor(notes) {
+  return COLORS.find((c) => !notes.some((n) => n.color === c)) ?? COLORS[0];
+}
+
+// Where a new note goes: beside the note + was pressed on (right, then below, then left), or cascading
+// from the top-left. `area` is the visible space, so a new note never lands off screen.
+function nextPosition(notes, { from, area = { x: 0, y: 0, width: 1200, height: 800 } } = {}) {
+  const gap = 24;
+  const fits = (x, y) => x >= area.x && y >= area.y && x + SIZE.w <= area.x + area.width && y + SIZE.h <= area.y + area.height;
+  const free = (x, y) => !notes.some((n) => Math.abs(n.x - x) < 40 && Math.abs(n.y - y) < 40);
+  if (from) {
+    const tries = [[from.x + from.w + gap, from.y], [from.x, from.y + from.h + gap], [from.x - SIZE.w - gap, from.y], [from.x + 40, from.y + 40]];
+    for (const [x, y] of tries) if (fits(x, y) && free(x, y)) return { x, y };
+  }
+  for (let i = 0; i < 12; i++) {
+    const x = area.x + 40 + i * 36;
+    const y = area.y + 40 + i * 36;
+    if (fits(x, y) && free(x, y)) return { x, y };
+  }
+  return { x: area.x + 40, y: area.y + 40 };
+}
+
+// A new empty note, or null when three already exist.
+function createNote(notes, options = {}) {
+  if (!canAdd(notes)) return null;
+  const t = stamp();
+  return {
+    id: uid(), body: '', list: false, checklist: [],
+    color: freeColor(notes),
+    ...nextPosition(notes, options), w: SIZE.w, h: SIZE.h, created: t, updated: t,
+  };
+}
+
+// Returns a changed COPY of the note, with its size and position kept at usable values.
+function updateNote(note, patch) {
+  const next = { ...note, ...patch, updated: stamp() };
+  next.x = Math.round(next.x);
+  next.y = Math.round(next.y);
+  next.w = Math.max(SIZE.minW, Math.round(next.w));
+  next.h = Math.max(SIZE.minH, Math.round(next.h));
+  if (!COLORS.includes(next.color)) next.color = note.color;
+  return next;
+}
+
+const remove = (list, id) => list.filter((x) => x.id !== id);
+
+// True when the note has nothing in it, so deleting it needs no second click.
+const isEmpty = (note) => !note.body.trim() && !note.checklist.some((i) => i.text.trim());
+
+// Turns the checklist on or off without losing anything: lines become items, and items become lines again.
+function setList(note, on) {
+  if (on === note.list) return note;
+  if (on) {
+    const lines = note.body.split('\n').map((l) => l.trim()).filter(Boolean);
+    const items = [...note.checklist, ...lines.map((text) => ({ id: uid(), text, done: false }))];
+    return updateNote(note, { list: true, checklist: items, body: '' });
+  }
+  const text = note.checklist.map((i) => i.text).filter((t) => t.trim()).join('\n');
+  const body = [note.body.trim(), text].filter(Boolean).join('\n');
+  return updateNote(note, { list: false, checklist: [], body });
+}
+
+// Checklist items: each change returns a new note with a new checklist array.
+function addItem(note, text) {
+  const clean = text.trim();
+  if (!clean) return note;
+  return updateNote(note, { checklist: [...note.checklist, { id: uid(), text: clean, done: false }] });
+}
+const toggleItem = (note, itemId) =>
+  updateNote(note, { checklist: note.checklist.map((i) => (i.id === itemId ? { ...i, done: !i.done } : i)) });
+const editItem = (note, itemId, text) =>
+  updateNote(note, { checklist: note.checklist.map((i) => (i.id === itemId ? { ...i, text } : i)) });
+const removeItem = (note, itemId) =>
+  updateNote(note, { checklist: note.checklist.filter((i) => i.id !== itemId) });
+
+function progress(note) {
+  const total = note.checklist.length;
+  const done = note.checklist.filter((i) => i.done).length;
+  return { done, total, label: total ? `${done}/${total}` : '' };
+}
+
+// Brings a note to the front: the last one in the list is drawn on top.
+function toFront(notes, id) {
+  const note = notes.find((n) => n.id === id);
+  return note ? [...remove(notes, id), note] : notes;
+}
+```
+
+```js ui
+const desk = document.getElementById('desk');
+let notes = [createNote([])];
+
+const area = () => ({ x: 0, y: 0, width: Math.max(desk.clientWidth, SIZE.w + 80), height: Math.max(desk.clientHeight, SIZE.h + 80) });
+
+// Every change goes through here: replace the note with a changed copy, then redraw.
+function update(id, fn, rerender = true) {
+  notes = notes.map((n) => (n.id === id ? fn(n) : n));
+  if (rerender) keepFocus(render);
+}
+
+function addNote(fromId) {
+  const from = notes.find((n) => n.id === fromId);
+  const note = createNote(notes, { from, area: area() });
+  if (!note) return;                     // already three
+  notes = [...notes, note];
+  render();
+  desk.querySelector(`[data-id="${note.id}"] textarea`)?.focus();
+}
+
+function removeNote(id) {
+  notes = remove(notes, id);
+  render();
+}
+
+// What each button and field on a note does.
+function actionsFor(note) {
+  const change = (fn, rerender = true) => update(note.id, fn, rerender);
+  return {
+    color: (color) => change((n) => updateNote(n, { color })),
+    text: (body) => change((n) => updateNote(n, { body }), false),   // typing: save it, but don't redraw
+    add: () => addNote(note.id),
+    remove: () => removeNote(note.id),
+    list: (on) => change((n) => setList(n, on)),
+    addItem: (text) => change((n) => addItem(n, text)),
+    toggleItem: (itemId) => change((n) => toggleItem(n, itemId)),
+    editItem: (itemId, text) => change((n) => editItem(n, itemId, text), false),
+    removeItem: (itemId) => change((n) => removeItem(n, itemId)),
+  };
+}
+
+// Dragging a note by its top bar (but not by its buttons).
+function draggable(card, note) {
+  const bar = card.querySelector('.note-bar');
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    e.preventDefault();
+    notes = toFront(notes, note.id);
+    desk.append(card);                                   // on top while dragging
+    const start = { x: e.clientX, y: e.clientY, left: note.x, top: note.y };
+    card.classList.add('dragging');
+    bar.setPointerCapture(e.pointerId);                 // keep getting moves even off the bar
+    const move = (ev) => {
+      const a = area();
+      // keep the whole note on the desk
+      const x = Math.max(0, Math.min(start.left + ev.clientX - start.x, a.width - card.offsetWidth));
+      const y = Math.max(0, Math.min(start.top + ev.clientY - start.y, a.height - Math.min(card.offsetHeight, a.height)));
+      card.style.left = `${x}px`;
+      card.style.top = `${y}px`;
+    };
+    const up = () => {
+      card.classList.remove('dragging');
+      bar.removeEventListener('pointermove', move);
+      update(note.id, (n) => updateNote(n, { x: parseFloat(card.style.left), y: parseFloat(card.style.top) }), false);
+    };
+    bar.addEventListener('pointermove', move);
+    bar.addEventListener('pointerup', up, { once: true });
+    bar.addEventListener('pointercancel', up, { once: true });
+  });
+  // Resizing uses the grip the browser draws (CSS resize); remember the new size when it changes
+  new ResizeObserver(() => {
+    const w = card.offsetWidth;
+    const h = card.offsetHeight;
+    const current = notes.find((n) => n.id === note.id);
+    if (current && (Math.abs(current.w - w) > 1 || Math.abs(current.h - h) > 1)) {
+      update(note.id, (n) => updateNote(n, { w, h }), false);
+    }
+  }).observe(card);
+}
+
+function render() {
+  desk.replaceChildren(...notes.map((note) => {
+    const card = renderNote(note, actionsFor(note), { canAdd: canAdd(notes) });
+    Object.assign(card.style, { left: `${note.x}px`, top: `${note.y}px`, width: `${note.w}px`, height: `${note.h}px` });
+    draggable(card, note);
+    return card;
+  }));
+  document.getElementById('empty').hidden = notes.length > 0;
+}
+
+document.getElementById('firstNote').addEventListener('click', () => addNote());
+```
+
 ## Finish
 
 ### What you learned
