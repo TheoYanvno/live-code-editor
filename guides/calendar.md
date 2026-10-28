@@ -1407,6 +1407,608 @@ $('monthList').addEventListener('click', (e) => {
 });
 ```
 
+## Session: Out into the world
+
+## Step: Saving, and exporting to any calendar
+time: 15
+
+Tasks should still be there tomorrow, and they should be able to leave this page.
+
+```svg Three ways tasks leave the page: saved in the browser, an .ics file, or a Google Calendar link
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 150" font-family="sans-serif"><rect x="15" y="50" width="100" height="40" rx="6" fill="#e2e8f0" stroke="#475569"/><text x="65" y="74" text-anchor="middle" font-size="11">your tasks</text><rect x="220" y="10" width="195" height="36" rx="6" fill="#fef9c3" stroke="#475569"/><text x="317" y="32" text-anchor="middle" font-size="11">localStorage (this browser)</text><line x1="115" y1="70" x2="220" y2="28" stroke="#475569" stroke-width="1.5"/><rect x="220" y="56" width="195" height="36" rx="6" fill="#ffedd5" stroke="#475569"/><text x="317" y="78" text-anchor="middle" font-size="11">.ics file (any calendar app)</text><line x1="115" y1="70" x2="220" y2="74" stroke="#475569" stroke-width="1.5"/><rect x="220" y="102" width="195" height="36" rx="6" fill="#bbf7d0" stroke="#475569"/><text x="317" y="124" text-anchor="middle" font-size="11">Google Calendar link (email reminders)</text><line x1="115" y1="70" x2="220" y2="120" stroke="#475569" stroke-width="1.5"/></svg>
+```
+
+**Saving.** `save()` writes the tasks to `localStorage` as JSON after every `render()`, and `load()` reads them back at the start (or the example tasks, the first time). Both are wrapped in `try`/`catch`, because storage can be blocked: private browsing, a browser setting, or a sandboxed page. This editor's preview is one of those, so here your tasks reset when the preview reloads; the page keeps working anyway.
+
+**Exporting.** iCalendar (`.ics`) is the plain-text format every calendar app imports: Google Calendar, Apple Calendar, Outlook. Each task becomes a `VEVENT`:
+
+```
+BEGIN:VEVENT
+UID:3f9c…@task-calendar
+SUMMARY:Standup\, daily
+DTSTART:20261028T093000
+RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR
+END:VEVENT
+```
+
+| Task field | .ics line |
+|---|---|
+| title | `SUMMARY` (commas, semicolons and backslashes escaped with `\`) |
+| date and time | `DTSTART`, or `DTSTART;VALUE=DATE` for all-day |
+| repeat | `RRULE`, the standard repeat rule (weekdays is `FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR`) |
+
+The file uses `\r\n` line endings, which the format requires. To download it, the app wraps the text in a **`Blob`**, makes a temporary URL for it with `URL.createObjectURL()`, and clicks an invisible link with a `download` name. (The editor's preview may block downloads; open the finished page on its own to get the file.)
+
+check: js | tasks are saved | /localStorage\.setItem\(/
+check: js | a toIcs() function | /function\s+toIcs\s*\(/
+check: js | repeats become RRULE lines | /RRULE:/
+check: js | the file is made in the browser | /new\s+Blob\(/
+
+quiz: Why is the title "Standup, daily" written as "Standup\, daily" in the .ics file?
+- [x] Commas separate values in iCalendar, so a comma inside text must be escaped
+- [ ] To make it bold
+- [ ] Calendar apps can't show commas
+why: Escaping tells the reader this comma is part of the title.
+quiz: How does the page offer a file to download without a server?
+- [ ] It uploads the file first
+- [x] It wraps the text in a Blob, makes a temporary URL with createObjectURL, and clicks a link with a download name
+- [ ] It emails the file
+why: The whole file is created in the browser and handed over through a local URL.
+
+```js tasks
+// Task logic: plain functions on plain objects, no page code.
+function newTask({ title, date, time = '', priority = 'medium', repeat = 'none' }) {
+  if (!title?.trim()) throw new Error('A task needs a title');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('A task needs a date');
+  const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  return { id, title: title.trim(), date, time, priority, repeat, done: false, doneDates: [] };
+}
+
+// Does a (possibly repeating) task fall on this day? Keys compare correctly as strings.
+function occursOn(task, key) {
+  if (key < task.date) return false;
+  switch (task.repeat) {
+    case 'daily': return true;
+    case 'weekdays': {
+      const day = fromKey(key).getDay();
+      return day > 0 && day < 6;
+    }
+    case 'weekly': return daysBetween(task.date, key) % 7 === 0;
+    case 'monthly': {
+      const start = fromKey(task.date);
+      const d = fromKey(key);
+      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();   // day 0 of next month = last day of this one
+      return d.getDate() === Math.min(start.getDate(), lastDay);                  // the 31st becomes the 30th or 28th in short months
+    }
+    default: return key === task.date;
+  }
+}
+
+// A repeating task is done one day at a time, so it keeps a list of done days.
+const isDone = (task, key) => (task.repeat !== 'none' ? task.doneDates.includes(key) : task.done);
+
+// All tasks on one day, each marked completed or not: unfinished first, then by time, then priority.
+function tasksOn(tasks, key) {
+  const rank = { high: 0, medium: 1, low: 2 };
+  return tasks
+    .filter((t) => occursOn(t, key))
+    .map((t) => ({ ...t, completed: isDone(t, key) }))
+    .sort((a, b) => a.completed - b.completed || (a.time || '99').localeCompare(b.time || '99') || rank[a.priority] - rank[b.priority]);
+}
+
+// Checks a task off (or back on). A repeating task changes only the day you clicked.
+function toggle(task, key) {
+  if (task.repeat !== 'none') {
+    const set = new Set(task.doneDates);
+    set.has(key) ? set.delete(key) : set.add(key);
+    return { ...task, doneDates: [...set].sort() };
+  }
+  return { ...task, done: !task.done };
+}
+
+// Unfinished one-time tasks from before today, oldest first.
+const overdue = (tasks, today) =>
+  tasks.filter((t) => t.repeat === 'none' && !t.done && t.date < today).sort((a, b) => a.date.localeCompare(b.date));
+
+const RULES = { daily: 'FREQ=DAILY', weekdays: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', weekly: 'FREQ=WEEKLY', monthly: 'FREQ=MONTHLY' };
+
+// iCalendar (.ics): the text format every calendar app can import. Repeats become RRULE lines.
+function toIcs(tasks) {
+  const esc = (s) => s.replace(/[\\;,]/g, (c) => `\\${c}`).replace(/\n/g, '\\n');
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Task Calendar//EN'];
+  for (const t of tasks) {
+    const day = t.date.replace(/-/g, '');
+    lines.push('BEGIN:VEVENT', `UID:${t.id}@task-calendar`, `SUMMARY:${esc(t.title)}`);
+    if (t.time) lines.push(`DTSTART:${day}T${t.time.replace(':', '')}00`);
+    else lines.push(`DTSTART;VALUE=DATE:${day}`);
+    if (RULES[t.repeat]) lines.push(`RRULE:${RULES[t.repeat]}`);
+    if (t.location) lines.push(`LOCATION:${esc(t.location)}`);
+    lines.push('END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+// Task titles are typed by people, so escape them before they go into HTML.
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const todayKey = toKey(new Date());
+const fmtDay = (key, opts = { weekday: 'long', month: 'long', day: 'numeric' }) => fromKey(key).toLocaleDateString(undefined, opts);
+let selected = todayKey;
+let viewYear = new Date().getFullYear();
+let viewMonth = new Date().getMonth();
+const fmtTime = (t) => (t ? new Date(`2000-01-01T${t}`).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');
+const repeatLabel = { daily: 'Every day', weekdays: 'Weekdays', weekly: 'Every week', monthly: 'Every month' };
+
+const KEY = 'task-calendar-guide';
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) ?? null; } catch { return null; } };
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(tasks)); } catch { /* storage blocked: keep going in memory */ } };
+
+// A few example tasks so the calendar isn't empty on a first visit
+let tasks = load() ?? [
+  newTask({ title: 'Welcome! Click a day to add tasks', date: todayKey, priority: 'high' }),
+  newTask({ title: 'Morning workout', date: todayKey, time: '06:30', repeat: 'weekdays', priority: 'low' }),
+  newTask({ title: 'Review the week', date: addDays(todayKey, 2), repeat: 'weekly' }),
+];
+
+// The monthly theme: colors and an emoji wallpaper that follow the month on screen.
+let seasonal = true;
+function applySeasonal() {
+  const t = themeFor(viewMonth);
+  const root = document.documentElement;
+  root.classList.toggle('seasonal', seasonal);
+  root.style.setProperty('--theme-accent', t.accent);
+  root.style.setProperty('--theme-tint', t.tint);
+  root.style.setProperty('--theme-pattern', `url("${emojiTile(t.emoji)}")`);
+  $('themeBadge').hidden = !seasonal;
+  $('themeBadge').textContent = `${t.emoji} ${t.holiday}`;
+  $('seasonal').setAttribute('aria-pressed', String(seasonal));
+}
+
+// A small SVG with the emoji twice, offset like wallpaper, as a data: URL for the CSS background.
+function emojiTile(emoji) {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">'
+    + `<text x="18" y="44" font-size="30" opacity="0.35">${emoji}</text><text x="78" y="104" font-size="30" opacity="0.35">${emoji}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+function renderCalendar() {
+  applySeasonal();
+  $('monthLabel').textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  $('grid').innerHTML = monthGrid(viewYear, viewMonth).map((key) => {
+    const d = fromKey(key);
+    const list = tasksOn(tasks, key);
+    const hols = holidaysOn(key);
+    const cls = ['day', d.getMonth() !== viewMonth && 'other', key === todayKey && 'today', key === selected && 'selected', hols.some((h) => h.federal) && 'dayoff'].filter(Boolean).join(' ');
+    const holiday = hols.length ? `<span class="holiday" title="${esc(hols.map((h) => h.name).join(', '))}">${hols[0].emoji} ${esc(hols[0].name)}</span>` : '';
+    const chips = list.slice(0, 3).map((t) => `<span class="chip ${t.priority}${t.completed ? ' done' : ''}"${t.repeat === 'none' ? ' draggable="true"' : ''} data-id="${t.id}">${esc(t.title)}</span>`).join('');
+    const more = list.length > 3 ? `<span class="more">+${list.length - 3} more</span>` : '';
+    return `<button class="${cls}" data-key="${key}" aria-label="${fmtDay(key)}, ${list.length} tasks"><span class="num">${d.getDate()}</span>${holiday}${chips}${more}</button>`;
+  }).join('');
+}
+
+const taskItem = (t, key, showDate = false) => `
+  <li class="task ${t.priority}${t.completed ? ' completed' : ''}">
+    <input type="checkbox" ${t.completed ? 'checked' : ''} data-toggle="${t.id}" data-key="${key}" aria-label="Done: ${esc(t.title)}">
+    <span class="t-body">
+      <span class="t-title">${esc(t.title)}</span>
+      <span class="t-meta">${[showDate && fmtDay(key, { weekday: 'short', month: 'short', day: 'numeric' }), fmtTime(t.time), repeatLabel[t.repeat]].filter(Boolean).join(' · ')}</span>
+    </span>
+    <button class="del" data-del="${t.id}" aria-label="Delete ${esc(t.title)}">✕</button>
+  </li>`;
+
+function renderDay() {
+  $('dayLabel').textContent = selected === todayKey ? `Today, ${fmtDay(selected, { month: 'long', day: 'numeric' })}` : fmtDay(selected);
+  const hols = holidaysOn(selected);
+  $('dayHoliday').hidden = !hols.length;
+  $('dayHoliday').textContent = hols.map((h) => `${h.emoji} ${h.name}${h.federal ? ' · federal holiday' : ''}`).join('  ·  ');
+  $('dayTasks').innerHTML = tasksOn(tasks, selected).map((t) => taskItem(t, selected)).join('')
+    || '<li class="empty">No tasks. Enjoy the free time, or add one above.</li>';
+}
+
+function renderMonth() {
+  const late = overdue(tasks, todayKey);
+  $('overdueAlert').innerHTML = late.length ? `<details class="overdue" open>
+    <summary>⚠️ ${late.length} overdue task${late.length > 1 ? 's' : ''}</summary>
+    <ul class="tasks">${late.map((t) => taskItem({ ...t, completed: false }, t.date, true)).join('')}</ul></details>` : '';
+  const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long' });
+  $('monthTitle').textContent = `This month: ${monthName}`;
+  $('monthList').innerHTML = monthHighlights(tasks, viewYear, viewMonth).map((x) => {
+    const d = fromKey(x.key);
+    const past = x.key < todayKey ? ' past' : '';
+    const date = `<span class="hl-date"><b>${d.getDate()}</b>${d.toLocaleDateString(undefined, { weekday: 'short' })}</span>`;
+    const title = x.type === 'holiday' ? `${x.emoji} ${esc(x.name)}` : `⭐ ${esc(x.task.title)}`;
+    const meta = x.type === 'holiday' ? (x.federal ? 'Federal holiday' : 'Holiday')
+      : [fmtTime(x.task.time), x.times > 1 ? `${x.times} times this month` : ''].filter(Boolean).join(' · ');
+    return `<li><button class="hl${past}" data-goto="${x.key}">${date}<span class="hl-body"><span class="hl-title">${title}</span>`
+      + `${meta ? `<span class="hl-meta">${meta}</span>` : ''}</span></button></li>`;
+  }).join('') || '<li class="empty">Nothing important yet this month. Mark a task High to see it here.</li>';
+}
+
+function render() { renderCalendar(); renderDay(); renderMonth(); save(); }
+
+// Clicking a day selects it (and moves to its month if it's one of the grey days)
+$('grid').addEventListener('click', (e) => {
+  const day = e.target.closest('.day');
+  if (!day) return;
+  selected = day.dataset.key;
+  const d = fromKey(selected);
+  if (d.getMonth() !== viewMonth) { viewMonth = d.getMonth(); viewYear = d.getFullYear(); }
+  render();
+});
+$('prevMonth').onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); };
+$('nextMonth').onclick = () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); };
+$('today').onclick = () => { selected = todayKey; viewYear = new Date().getFullYear(); viewMonth = new Date().getMonth(); render(); };
+
+$('addForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  tasks.push(newTask({ title: $('title').value, date: selected, time: $('time').value, priority: $('priority').value, repeat: $('repeat').value }));
+  $('title').value = ''; $('time').value = ''; $('repeat').value = 'none';
+  render();
+});
+
+// One listener for every checkbox and ✕, wherever they are on the page
+document.addEventListener('change', (e) => {
+  const id = e.target.dataset.toggle;
+  if (!id) return;
+  tasks = tasks.map((t) => (t.id === id ? toggle(t, e.target.dataset.key) : t));
+  render();
+});
+document.addEventListener('click', (e) => {
+  const id = e.target.dataset.del;
+  if (!id) return;
+  const task = tasks.find((t) => t.id === id);
+  if (task.repeat !== 'none' && !confirm(`"${task.title}" repeats. Delete every occurrence?`)) return;
+  tasks = tasks.filter((t) => t.id !== id);
+  render();
+});
+
+// Drag and drop a one-time task onto another day to reschedule it
+let dragId = null;
+$('grid').addEventListener('dragstart', (e) => { dragId = e.target.dataset.id; e.dataTransfer.effectAllowed = 'move'; });
+$('grid').addEventListener('dragover', (e) => {
+  const day = e.target.closest('.day');
+  if (day && dragId) { e.preventDefault(); day.classList.add('drop'); }   // preventDefault = "you may drop here"
+});
+$('grid').addEventListener('dragleave', (e) => e.target.closest('.day')?.classList.remove('drop'));
+$('grid').addEventListener('drop', (e) => {
+  const day = e.target.closest('.day');
+  if (!day || !dragId) return;
+  e.preventDefault();
+  tasks = tasks.map((t) => (t.id === dragId ? { ...t, date: day.dataset.key } : t));
+  dragId = null;
+  render();
+});
+
+$('seasonal').onclick = () => { seasonal = !seasonal; applySeasonal(); };
+$('monthList').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-goto]');
+  if (!b) return;
+  selected = b.dataset.goto;
+  render();
+});
+
+// Export: build the .ics text, wrap it in a Blob, and click a temporary download link
+$('export').onclick = () => {
+  const blob = new Blob([toIcs(tasks)], { type: 'text/calendar' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'tasks.ics' });
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+```
+
+## Step: Email reminders and places
+time: 15
+
+A static web page can't send email: there's no server. But Google Calendar can, so the **✉️ Email me** button hands the task to Google instead. It's a link to Google Calendar's "new event" page with everything filled in through the URL:
+
+| Parameter | Example | From |
+|---|---|---|
+| `text` | `Dentist` | the title |
+| `dates` | `20261028T093000/20261028T100000` | the date and time, as a 30-minute event |
+| `ctz` | `America/New_York` | your time zone, from `Intl.DateTimeFormat()` |
+| `location` | `12 Main St` | the task's place |
+| `recur` | `RRULE:FREQ=WEEKLY` | the repeat rule, the same as in the .ics file |
+
+`URLSearchParams` builds the query string and escapes everything correctly, so titles with spaces or `&` don't break the link. Saved in Google Calendar, the event sends an email before it's due, even with this page closed. (Tasks without a time become all-day events: from the day to the next. An 11:45 PM task correctly ends just after midnight.)
+
+**Places.** Tasks can now have a location. It shows under the task with a 📍 link to a Google Maps search, made with `encodeURIComponent()` so an address with `#` or `&` stays in one piece.
+
+Both links open in a new tab with `target="_blank" rel="noopener"`, so the new page can't reach back into this one.
+
+### Try it
+
+Add a task with a time and a place, then hover ✉️ Email me to see the link, or click it to open Google Calendar with the event filled in.
+
+check: js | a Google Calendar link | /function\s+googleCalendarUrl\s*\(/
+check: js | the query string is built safely | /new\s+URLSearchParams\(/
+check: js | a Maps link for the place | /const\s+mapLink\s*=/
+check: js | the form saves the place | /location:\s*\$\(\s*['"]location['"]\s*\)\.value/
+
+quiz: Why does the Email me button go through Google Calendar?
+- [x] The page has no server to send email, but Google Calendar can send reminders for saved events
+- [ ] Email is not allowed in JavaScript
+- [ ] Google Calendar is faster
+why: A static site hands the job to a service that already does it.
+quiz: Why use URLSearchParams instead of gluing the query string together by hand?
+- [x] It escapes spaces, & and other special characters so the link always works
+- [ ] It makes the URL shorter
+- [ ] Google requires it
+why: A title like "Tom & Jerry" would otherwise split into a broken parameter.
+
+```js tasks
+// Task logic: plain functions on plain objects, no page code.
+function newTask({ title, date, time = '', priority = 'medium', repeat = 'none', location = '' }) {
+  if (!title?.trim()) throw new Error('A task needs a title');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('A task needs a date');
+  const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  return { id, title: title.trim(), date, time, priority, repeat, location: location.trim().slice(0, 200), done: false, doneDates: [] };
+}
+
+// Does a (possibly repeating) task fall on this day? Keys compare correctly as strings.
+function occursOn(task, key) {
+  if (key < task.date) return false;
+  switch (task.repeat) {
+    case 'daily': return true;
+    case 'weekdays': {
+      const day = fromKey(key).getDay();
+      return day > 0 && day < 6;
+    }
+    case 'weekly': return daysBetween(task.date, key) % 7 === 0;
+    case 'monthly': {
+      const start = fromKey(task.date);
+      const d = fromKey(key);
+      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();   // day 0 of next month = last day of this one
+      return d.getDate() === Math.min(start.getDate(), lastDay);                  // the 31st becomes the 30th or 28th in short months
+    }
+    default: return key === task.date;
+  }
+}
+
+// A repeating task is done one day at a time, so it keeps a list of done days.
+const isDone = (task, key) => (task.repeat !== 'none' ? task.doneDates.includes(key) : task.done);
+
+// All tasks on one day, each marked completed or not: unfinished first, then by time, then priority.
+function tasksOn(tasks, key) {
+  const rank = { high: 0, medium: 1, low: 2 };
+  return tasks
+    .filter((t) => occursOn(t, key))
+    .map((t) => ({ ...t, completed: isDone(t, key) }))
+    .sort((a, b) => a.completed - b.completed || (a.time || '99').localeCompare(b.time || '99') || rank[a.priority] - rank[b.priority]);
+}
+
+// Checks a task off (or back on). A repeating task changes only the day you clicked.
+function toggle(task, key) {
+  if (task.repeat !== 'none') {
+    const set = new Set(task.doneDates);
+    set.has(key) ? set.delete(key) : set.add(key);
+    return { ...task, doneDates: [...set].sort() };
+  }
+  return { ...task, done: !task.done };
+}
+
+// Unfinished one-time tasks from before today, oldest first.
+const overdue = (tasks, today) =>
+  tasks.filter((t) => t.repeat === 'none' && !t.done && t.date < today).sort((a, b) => a.date.localeCompare(b.date));
+
+const RULES = { daily: 'FREQ=DAILY', weekdays: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', weekly: 'FREQ=WEEKLY', monthly: 'FREQ=MONTHLY' };
+
+// iCalendar (.ics): the text format every calendar app can import. Repeats become RRULE lines.
+function toIcs(tasks) {
+  const esc = (s) => s.replace(/[\\;,]/g, (c) => `\\${c}`).replace(/\n/g, '\\n');
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Task Calendar//EN'];
+  for (const t of tasks) {
+    const day = t.date.replace(/-/g, '');
+    lines.push('BEGIN:VEVENT', `UID:${t.id}@task-calendar`, `SUMMARY:${esc(t.title)}`);
+    if (t.time) lines.push(`DTSTART:${day}T${t.time.replace(':', '')}00`);
+    else lines.push(`DTSTART;VALUE=DATE:${day}`);
+    if (RULES[t.repeat]) lines.push(`RRULE:${RULES[t.repeat]}`);
+    if (t.location) lines.push(`LOCATION:${esc(t.location)}`);
+    lines.push('END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+// A Google Maps search for a task's place (addresses, businesses, landmarks).
+const mapLink = (location) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+
+// A Google Calendar link that opens a new event already filled in. Saved there, Google emails the reminder:
+// this page has no server, so it can't send email itself. Timed tasks become 30-minute events.
+function googleCalendarUrl(task, key = task.date, timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
+  const start = task.repeat !== 'none' ? task.date : key;        // a series starts at its first day
+  const day = start.replace(/-/g, '');
+  let dates;
+  if (task.time) {
+    const [h, m] = task.time.split(':').map(Number);
+    const end = new Date(2000, 0, 1, h, m + 30);
+    const endDay = end.getDate() > 1 ? addDays(start, 1).replace(/-/g, '') : day;   // 11:45 PM ends tomorrow
+    const hhmm = (x, y) => `${String(x).padStart(2, '0')}${String(y).padStart(2, '0')}00`;
+    dates = `${day}T${hhmm(h, m)}/${endDay}T${hhmm(end.getHours(), end.getMinutes())}`;
+  } else {
+    dates = `${day}/${addDays(start, 1).replace(/-/g, '')}`;     // all-day: from this day to the next
+  }
+  const params = new URLSearchParams({ action: 'TEMPLATE', text: task.title, dates, ctz: timeZone });
+  params.set('details', `Priority: ${task.priority}\nAdded from Task Calendar`);
+  if (task.location) params.set('location', task.location);
+  if (RULES[task.repeat]) params.set('recur', `RRULE:${RULES[task.repeat]}`);
+  return `https://calendar.google.com/calendar/render?${params}`;
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+// Task titles are typed by people, so escape them before they go into HTML.
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const todayKey = toKey(new Date());
+const fmtDay = (key, opts = { weekday: 'long', month: 'long', day: 'numeric' }) => fromKey(key).toLocaleDateString(undefined, opts);
+let selected = todayKey;
+let viewYear = new Date().getFullYear();
+let viewMonth = new Date().getMonth();
+const fmtTime = (t) => (t ? new Date(`2000-01-01T${t}`).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '');
+const repeatLabel = { daily: 'Every day', weekdays: 'Weekdays', weekly: 'Every week', monthly: 'Every month' };
+
+const KEY = 'task-calendar-guide';
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) ?? null; } catch { return null; } };
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(tasks)); } catch { /* storage blocked: keep going in memory */ } };
+
+// A few example tasks so the calendar isn't empty on a first visit
+let tasks = load() ?? [
+  newTask({ title: 'Welcome! Click a day to add tasks', date: todayKey, priority: 'high' }),
+  newTask({ title: 'Morning workout', date: todayKey, time: '06:30', repeat: 'weekdays', priority: 'low' }),
+  newTask({ title: 'Review the week', date: addDays(todayKey, 2), repeat: 'weekly' }),
+];
+
+// The monthly theme: colors and an emoji wallpaper that follow the month on screen.
+let seasonal = true;
+function applySeasonal() {
+  const t = themeFor(viewMonth);
+  const root = document.documentElement;
+  root.classList.toggle('seasonal', seasonal);
+  root.style.setProperty('--theme-accent', t.accent);
+  root.style.setProperty('--theme-tint', t.tint);
+  root.style.setProperty('--theme-pattern', `url("${emojiTile(t.emoji)}")`);
+  $('themeBadge').hidden = !seasonal;
+  $('themeBadge').textContent = `${t.emoji} ${t.holiday}`;
+  $('seasonal').setAttribute('aria-pressed', String(seasonal));
+}
+
+// A small SVG with the emoji twice, offset like wallpaper, as a data: URL for the CSS background.
+function emojiTile(emoji) {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">'
+    + `<text x="18" y="44" font-size="30" opacity="0.35">${emoji}</text><text x="78" y="104" font-size="30" opacity="0.35">${emoji}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+function renderCalendar() {
+  applySeasonal();
+  $('monthLabel').textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  $('grid').innerHTML = monthGrid(viewYear, viewMonth).map((key) => {
+    const d = fromKey(key);
+    const list = tasksOn(tasks, key);
+    const hols = holidaysOn(key);
+    const cls = ['day', d.getMonth() !== viewMonth && 'other', key === todayKey && 'today', key === selected && 'selected', hols.some((h) => h.federal) && 'dayoff'].filter(Boolean).join(' ');
+    const holiday = hols.length ? `<span class="holiday" title="${esc(hols.map((h) => h.name).join(', '))}">${hols[0].emoji} ${esc(hols[0].name)}</span>` : '';
+    const chips = list.slice(0, 3).map((t) => `<span class="chip ${t.priority}${t.completed ? ' done' : ''}"${t.repeat === 'none' ? ' draggable="true"' : ''} data-id="${t.id}">${esc(t.title)}</span>`).join('');
+    const more = list.length > 3 ? `<span class="more">+${list.length - 3} more</span>` : '';
+    return `<button class="${cls}" data-key="${key}" aria-label="${fmtDay(key)}, ${list.length} tasks"><span class="num">${d.getDate()}</span>${holiday}${chips}${more}</button>`;
+  }).join('');
+}
+
+const taskItem = (t, key, showDate = false) => `
+  <li class="task ${t.priority}${t.completed ? ' completed' : ''}">
+    <input type="checkbox" ${t.completed ? 'checked' : ''} data-toggle="${t.id}" data-key="${key}" aria-label="Done: ${esc(t.title)}">
+    <span class="t-body">
+      <span class="t-title">${esc(t.title)}</span>
+      <span class="t-meta">${[showDate && fmtDay(key, { weekday: 'short', month: 'short', day: 'numeric' }), fmtTime(t.time), repeatLabel[t.repeat]].filter(Boolean).join(' · ')}</span>
+      ${t.location ? `<a class="t-loc" href="${esc(mapLink(t.location))}" target="_blank" rel="noopener">📍 ${esc(t.location)}</a>` : ''}
+    </span>
+    <a class="mail" href="${esc(googleCalendarUrl(t, key))}" target="_blank" rel="noopener" title="Email me a reminder (adds it to Google Calendar)">✉️ Email me</a>
+    <button class="del" data-del="${t.id}" aria-label="Delete ${esc(t.title)}">✕</button>
+  </li>`;
+
+function renderDay() {
+  $('dayLabel').textContent = selected === todayKey ? `Today, ${fmtDay(selected, { month: 'long', day: 'numeric' })}` : fmtDay(selected);
+  const hols = holidaysOn(selected);
+  $('dayHoliday').hidden = !hols.length;
+  $('dayHoliday').textContent = hols.map((h) => `${h.emoji} ${h.name}${h.federal ? ' · federal holiday' : ''}`).join('  ·  ');
+  $('dayTasks').innerHTML = tasksOn(tasks, selected).map((t) => taskItem(t, selected)).join('')
+    || '<li class="empty">No tasks. Enjoy the free time, or add one above.</li>';
+}
+
+function renderMonth() {
+  const late = overdue(tasks, todayKey);
+  $('overdueAlert').innerHTML = late.length ? `<details class="overdue" open>
+    <summary>⚠️ ${late.length} overdue task${late.length > 1 ? 's' : ''}</summary>
+    <ul class="tasks">${late.map((t) => taskItem({ ...t, completed: false }, t.date, true)).join('')}</ul></details>` : '';
+  const monthName = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: 'long' });
+  $('monthTitle').textContent = `This month: ${monthName}`;
+  $('monthList').innerHTML = monthHighlights(tasks, viewYear, viewMonth).map((x) => {
+    const d = fromKey(x.key);
+    const past = x.key < todayKey ? ' past' : '';
+    const date = `<span class="hl-date"><b>${d.getDate()}</b>${d.toLocaleDateString(undefined, { weekday: 'short' })}</span>`;
+    const title = x.type === 'holiday' ? `${x.emoji} ${esc(x.name)}` : `⭐ ${esc(x.task.title)}`;
+    const meta = x.type === 'holiday' ? (x.federal ? 'Federal holiday' : 'Holiday')
+      : [fmtTime(x.task.time), x.times > 1 ? `${x.times} times this month` : ''].filter(Boolean).join(' · ');
+    return `<li><button class="hl${past}" data-goto="${x.key}">${date}<span class="hl-body"><span class="hl-title">${title}</span>`
+      + `${meta ? `<span class="hl-meta">${meta}</span>` : ''}</span></button></li>`;
+  }).join('') || '<li class="empty">Nothing important yet this month. Mark a task High to see it here.</li>';
+}
+
+function render() { renderCalendar(); renderDay(); renderMonth(); save(); }
+
+// Clicking a day selects it (and moves to its month if it's one of the grey days)
+$('grid').addEventListener('click', (e) => {
+  const day = e.target.closest('.day');
+  if (!day) return;
+  selected = day.dataset.key;
+  const d = fromKey(selected);
+  if (d.getMonth() !== viewMonth) { viewMonth = d.getMonth(); viewYear = d.getFullYear(); }
+  render();
+});
+$('prevMonth').onclick = () => { viewMonth--; if (viewMonth < 0) { viewMonth = 11; viewYear--; } render(); };
+$('nextMonth').onclick = () => { viewMonth++; if (viewMonth > 11) { viewMonth = 0; viewYear++; } render(); };
+$('today').onclick = () => { selected = todayKey; viewYear = new Date().getFullYear(); viewMonth = new Date().getMonth(); render(); };
+
+$('addForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  tasks.push(newTask({ title: $('title').value, date: selected, time: $('time').value, priority: $('priority').value, repeat: $('repeat').value, location: $('location').value }));
+  $('title').value = ''; $('time').value = ''; $('repeat').value = 'none'; $('location').value = '';
+  render();
+});
+
+// One listener for every checkbox and ✕, wherever they are on the page
+document.addEventListener('change', (e) => {
+  const id = e.target.dataset.toggle;
+  if (!id) return;
+  tasks = tasks.map((t) => (t.id === id ? toggle(t, e.target.dataset.key) : t));
+  render();
+});
+document.addEventListener('click', (e) => {
+  const id = e.target.dataset.del;
+  if (!id) return;
+  const task = tasks.find((t) => t.id === id);
+  if (task.repeat !== 'none' && !confirm(`"${task.title}" repeats. Delete every occurrence?`)) return;
+  tasks = tasks.filter((t) => t.id !== id);
+  render();
+});
+
+// Drag and drop a one-time task onto another day to reschedule it
+let dragId = null;
+$('grid').addEventListener('dragstart', (e) => { dragId = e.target.dataset.id; e.dataTransfer.effectAllowed = 'move'; });
+$('grid').addEventListener('dragover', (e) => {
+  const day = e.target.closest('.day');
+  if (day && dragId) { e.preventDefault(); day.classList.add('drop'); }   // preventDefault = "you may drop here"
+});
+$('grid').addEventListener('dragleave', (e) => e.target.closest('.day')?.classList.remove('drop'));
+$('grid').addEventListener('drop', (e) => {
+  const day = e.target.closest('.day');
+  if (!day || !dragId) return;
+  e.preventDefault();
+  tasks = tasks.map((t) => (t.id === dragId ? { ...t, date: day.dataset.key } : t));
+  dragId = null;
+  render();
+});
+
+$('seasonal').onclick = () => { seasonal = !seasonal; applySeasonal(); };
+$('monthList').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-goto]');
+  if (!b) return;
+  selected = b.dataset.goto;
+  render();
+});
+
+// Export: build the .ics text, wrap it in a Blob, and click a temporary download link
+$('export').onclick = () => {
+  const blob = new Blob([toIcs(tasks)], { type: 'text/calendar' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'tasks.ics' });
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+```
+
 ## Finish
 
 ### What you learned
