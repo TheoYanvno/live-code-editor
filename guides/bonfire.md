@@ -1225,6 +1225,422 @@ function route() {
 addEventListener('hashchange', route);
 ```
 
+## Session: A real blog
+
+## Step: Tags, newer and older, and not-found pages
+time: 20
+
+**Tag pages.** Every tag on a card is now a link to `#/tag/<tag>`. The home page gets a **tag cloud**: "all" plus every tag used, with the current one highlighted. `homePage(tag)` filters the posts and changes the heading to `Tagged "guide"`. A tag nobody uses gets the not-found page.
+
+`allTags` is built the same way as categories elsewhere in my projects: `flatMap` to list every post's tags, a `Set` to remove duplicates, then `sort`.
+
+**Newer and older.** At the bottom of each post, the pager links to its neighbors in `POSTS_LIST`. The list is newest first, so:
+
+| Link | Post |
+|---|---|
+| ← newer | `POSTS_LIST[i - 1]` (none for the newest post) |
+| older → | `POSTS_LIST[i + 1]` (none for the oldest post) |
+
+Using `findIndex` instead of `find` gives the position `i` that both links need.
+
+**Not found.** One `notFound()` page now serves every bad address: an unknown post or an unknown tag. It's friendly and links home ("That page has gone hollow").
+
+### Try it
+
+Click a tag on any card, then "all". Open the newest post and follow "older →" all the way down.
+
+check: js | every tag has a page | /homePage\(\s*arg\s*\)/
+check: js | a tag cloud | /const\s+tagCloud\s*=/
+check: js | the post's position for the pager | /POSTS_LIST\.findIndex\(/
+check: js | one not-found page | /const\s+notFound\s*=/
+
+quiz: POSTS_LIST is sorted newest first. Which post is the "older →" link on post i?
+- [ ] POSTS_LIST[i - 1]
+- [x] POSTS_LIST[i + 1]
+- [ ] POSTS_LIST[0]
+why: Further down a newest-first list means older.
+quiz: Why use findIndex() instead of find() in postPage()?
+- [ ] findIndex is faster
+- [x] The position is needed to find the newer and older neighbors
+- [ ] find() can't search by slug
+why: With the index, the neighbors are just i - 1 and i + 1.
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const fmtDate = (key) => {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+};
+
+const card = (p) => `
+  <article class="card">
+    <p class="meta"><time datetime="${p.date}">${fmtDate(p.date)}</time> · ${readingMinutes(p)} min read</p>
+    <h2><a href="#/post/${p.slug}">${esc(p.title)}</a></h2>
+    <p>${esc(p.summary)}</p>
+    <p class="tags">${p.tags.map((t) => `<a href="#/tag/${t}" class="tag small">${esc(t)}</a>`).join('')}</p>
+  </article>`;
+
+const allTags = [...new Set(POSTS_LIST.flatMap((p) => p.tags))].sort();
+const tagCloud = (active) => `<nav class="tag-cloud" aria-label="Tags">
+  <a href="#/" class="tag${active ? '' : ' active'}">all</a>
+  ${allTags.map((t) => `<a href="#/tag/${t}" class="tag${t === active ? ' active' : ''}">${esc(t)}</a>`).join('')}</nav>`;
+
+function homePage(tag = null) {
+  const posts = tag ? POSTS_LIST.filter((p) => p.tags.includes(tag)) : POSTS_LIST;
+  const top = tag ? `<h1 class="page-title">Tagged “${esc(tag)}”</h1>`
+    : '<section class="hero"><h1>Rest here a while.</h1><p>A Dark Souls fan blog: guides, lore and stories from Lordran.</p></section>';
+  return { title: tag ? `Tagged ${tag}` : null, html: `${top}${tagCloud(tag)}<div class="cards">${posts.map(card).join('')}</div>` };
+}
+
+function postPage(slug) {
+  const i = POSTS_LIST.findIndex((p) => p.slug === slug);
+  if (i < 0) return notFound();
+  const post = POSTS_LIST[i];
+  const newer = POSTS_LIST[i - 1];
+  const older = POSTS_LIST[i + 1];
+  const toc = post.headings.length > 2
+    ? `<details class="toc"><summary>In this post</summary><ol>${post.headings.map((h) => `<li><a href="#/post/${post.slug}/${h.id}">${esc(h.text)}</a></li>`).join('')}</ol></details>`
+    : '';
+  return { title: post.title, html: `<article class="post">
+    <p class="meta"><time datetime="${post.date}">${fmtDate(post.date)}</time> · ${readingMinutes(post)} min read</p>
+    <h1>${esc(post.title)}</h1><p class="tags">${post.tags.map((t) => `<a href="#/tag/${t}" class="tag small">${esc(t)}</a>`).join('')}</p>
+    ${toc}
+    <div class="prose">${post.bodyHtml}</div></article>
+    <nav class="pager">${newer ? `<a href="#/post/${newer.slug}">← ${esc(newer.title)}</a>` : '<span></span>'}
+      ${older ? `<a href="#/post/${older.slug}">${esc(older.title)} →</a>` : ''}</nav>` };
+}
+
+const notFound = () => ({ title: 'Not found', html: '<h1 class="page-title">Nothing here</h1><p>That page has gone hollow. <a href="#/">All posts</a></p>' });
+
+// The address after # says which page to show: #/, #/post/<slug>, #/tag/<tag>.
+function route() {
+  const [, kind, arg, section] = /^#\/(post|tag|feed)?\/?([\w-]*)\/?([\w-]*)$/.exec(location.hash || '#/') ?? [];
+  const page = kind === 'post' ? postPage(arg)
+    : kind === 'tag' ? (allTags.includes(arg) ? homePage(arg) : notFound())
+    : homePage();
+  $('page').innerHTML = page.html;
+  document.title = page.title ? `${page.title} · Bonfire Notes` : 'Bonfire Notes';
+  if (section) document.getElementById(section)?.scrollIntoView();   // a table-of-contents link
+  else scrollTo(0, 0);
+}
+addEventListener('hashchange', route);
+```
+
+## Step: An RSS feed, and links that never break
+time: 20
+
+**RSS** is the format feed readers (and podcast apps, and some news sites) subscribe to: one XML file listing the latest posts. When a new post appears in it, subscribers hear about it.
+
+```
+<item>
+  <title>Boss Guide 2: Taurus Demon</title>
+  <link>https://theoyanvno.github.io/bonfire-notes/posts/taurus-demon-boss-guide.html</link>
+  <pubDate>Fri, 09 Oct 2026 00:00:00 GMT</pubDate>
+  <description>A huge demon on a narrow wall…</description>
+</item>
+```
+
+`rss(posts)` builds it with template literals. Text goes through `escapeXml()` (XML breaks on a stray `&` just like HTML does), and `toUTCString()` writes the date in the format RSS expects. The **RSS** link in the header opens a page showing the feed, with a **Download feed.xml** link made from a `Blob`. (The editor's preview may block downloads; the text is shown either way.)
+
+**Moved posts.** The real blog renamed some posts when it grew, and old links (bookmarks, other people's posts) still point to the old names. `REDIRECTS` maps old slugs to new ones:
+
+```svg An old address forwards to the post that replaced it
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 110" font-family="sans-serif"><rect x="10" y="20" width="170" height="34" rx="6" fill="#fde2e1" stroke="#b91c1c"/><text x="95" y="42" text-anchor="middle" font-size="10" font-family="monospace">#/post/beginner-friendly-builds</text><line x1="180" y1="37" x2="240" y2="37" stroke="#475569" stroke-width="2"/><text x="210" y="30" text-anchor="middle" font-size="10">REDIRECTS</text><rect x="240" y="20" width="180" height="34" rx="6" fill="#bbf7d0" stroke="#15803d"/><text x="330" y="42" text-anchor="middle" font-size="10" font-family="monospace">#/post/lordran-guide-hub</text><text x="215" y="84" text-anchor="middle" font-size="11" fill="#475569">location.replace() swaps the address without adding a history entry,</text><text x="215" y="100" text-anchor="middle" font-size="11" fill="#475569">so the Back button doesn't bounce you into the old link again</text></svg>
+```
+
+`route()` checks it first and calls `location.replace()` with the page's own address and the new hash. Unlike setting `location.hash`, `replace()` doesn't add a history entry, so pressing Back doesn't land on the old address and bounce forward again. (The full address matters here: a bare `#/…` would be read against the editor's address, and the preview would try to leave.)
+
+The real Python build goes one step further: it refuses to build if a redirect points to a post that doesn't exist, or if a live post still uses an old name. A test also checks that every link between posts points to a real page.
+
+### Try it
+
+Go to `#/post/beginner-friendly-builds`: you land on the guides hub. Press Back. Then open the RSS page.
+
+check: js | an rss() function | /function\s+rss\s*\(/
+check: js | XML text is escaped | /const\s+escapeXml\s*=/
+check: js | old addresses for moved posts | /const\s+REDIRECTS\s*=/
+check: js | forwarding without a history entry | /location\.replace\(/
+
+quiz: Why use location.replace() for a redirect instead of setting location.hash?
+- [ ] replace() is faster
+- [x] It doesn't add a history entry, so Back doesn't return to the old address and bounce forward again
+- [ ] location.hash can't be set in code
+why: A redirect should be invisible in the history.
+quiz: Why keep redirects for old post addresses at all?
+- [ ] Search engines require them
+- [x] Bookmarks and links on other sites still use the old addresses, and they should keep working
+- [ ] To make the site load faster
+why: Breaking every old link throws away readers who were trying to find you.
+
+```js site
+// The posts, as Markdown files would be: a name and the text. (The real blog reads these from a posts/ folder.)
+const FILES = [
+  { name: '2026-09-28-why-dark-souls-still-matters.md', text: `---
+title: Why Dark Souls Still Matters
+date: 2026-09-28
+tags: opinion, history
+summary: Fifteen years after it first lit the fire, Dark Souls still shapes how games are made. Here is why it holds up.
+---
+
+When **Dark Souls** came out in 2011, it had no tutorial pop-ups, no quest markers and no map. It dropped you into a dying world and trusted you to figure it out.
+
+## A world that folds back on itself
+
+You spend hours climbing away from Firelink Shrine, then open a door or ride an elevator and realize you are right back where you started. Every shortcut feels like a discovery.
+
+## Difficulty with a purpose
+
+Dark Souls is hard, but it is rarely unfair. Enemies telegraph their attacks, your stamina bar makes every swing a decision, and almost every death teaches you something.
+
+## Strangers who help
+
+Players can leave short messages on the ground for each other. Most are helpful, some are jokes, and a few are lies.` },
+
+  { name: '2026-09-29-first-hours-in-lordran.md', text: `---
+title: Your First Hours in Lordran: Beginner Tips
+date: 2026-09-29
+tags: guide, beginner
+summary: The things I wish someone had told me before my first trip through the Undead Burg.
+---
+
+The first few hours of Dark Souls are the hardest, because you don't know the rules yet. Here is what helps the most.
+
+## Bonfires are checkpoints with a cost
+
+Resting at a bonfire refills your health and your Estus Flasks, and sets where you come back after dying. But it also brings most enemies back to life.
+
+## Your souls are waiting where you fell
+
+When you die, you drop all your souls. Get back to that spot without dying and you pick them up again; die on the way and they're gone.
+
+## Watch your stamina, not your health
+
+- Attacking, rolling, running and blocking all use stamina.
+- The most common beginner death is swinging until the bar is empty.
+- Always keep a little in reserve to roll away.` },
+
+  { name: '2026-10-09-taurus-demon-boss-guide.md', text: `---
+title: Boss Guide 2: Taurus Demon
+date: 2026-10-09
+tags: guide, bosses
+summary: A huge demon on a narrow wall in the Undead Burg. Use the ladder behind you for free plunging attacks.
+---
+
+The Taurus Demon is the first boss that can feel unfair. But it has a famous weakness, and once you know it, the fight is short.
+
+| | |
+|---|---|
+| **Where** | The long stone wall in the Undead Burg |
+| **Weak to** | Plunging attacks, fire (firebombs) |
+
+## The trick: the ladder
+
+1. **Turn around and run back** to the tower you came from.
+2. **Climb the ladder** inside the tower to the top.
+3. Wait for the demon to walk underneath you, then **drop down and attack**.
+
+## Its attacks
+
+| Attack | What it looks like | How to avoid it |
+|---|---|---|
+| Overhead slam | Raises its axe high, slams down | Roll to the side or between its legs |
+| Wide swing | Big horizontal swing | Roll through it toward its body |
+| Leap | Jumps into the air and lands on you | Run sideways or forward under it |
+
+Back to the [guides hub](#/post/lordran-guide-hub).` },
+
+  { name: '2026-10-15-lordran-guide-hub.md', text: `---
+title: Start Here: Lordran Guides Hub
+date: 2026-10-15
+tags: guide, beginner
+summary: Every guide on the blog in one place, in the order you'll need them.
+---
+
+New to Dark Souls? Start with the tips, then take on the first big boss.
+
+| Guide | What it covers |
+|---|---|
+| [First hours](#/post/first-hours-in-lordran) | Bonfires, souls and stamina |
+| [Taurus Demon](#/post/taurus-demon-boss-guide) | The ladder trick and its attacks |
+
+*More guides are on the way.*` },
+];
+// Reads the '---' block at the top of a post into an object, and returns the rest as the body.
+function parseFrontMatter(raw) {
+  const match = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/.exec(raw);
+  if (!match) throw new Error('Post is missing its --- front matter block');
+  const meta = {};
+  for (const line of match[1].split('\n')) {
+    const i = line.indexOf(':');                      // only the FIRST colon splits, so titles can contain colons
+    if (i > 0) meta[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+  }
+  for (const required of ['title', 'date']) {
+    if (!meta[required]) throw new Error(`Front matter needs a '${required}'`);
+  }
+  return { meta, body: match[2] };
+}
+
+// "Ornstein & Smough: A Guide!" -> "ornstein-smough-a-guide"
+const slugify = (text) => text.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/[\s-]+/g, '-').replace(/^-|-$/g, '');
+
+const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// Bold, italics and links inside a line. The text is escaped FIRST, so the only HTML that can appear is what these
+// rules make, and links may only go to http(s) addresses or pages on this site.
+function inline(text) {
+  return escapeHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, url) => (/^(https?:\/\/|#\/)/.test(url) ? `<a href="${url}">${label}</a>` : label));
+}
+
+// Blocks are separated by blank lines. Returns the HTML and the post's ## headings for the table of contents.
+function markdownToHtml(md) {
+  const headings = [];
+  const used = new Set();
+  const uniqueId = (text) => {                       // two headings with the same text get -2, -3…
+    const base = slugify(text) || 'section';
+    let id = base;
+    for (let n = 2; used.has(id); n++) id = `${base}-${n}`;
+    used.add(id);
+    return id;
+  };
+  const html = md.trim().split(/\n\s*\n/).map((block) => {
+    const lines = block.split('\n');
+    const heading = /^(#{2,3})\s+(.+)$/.exec(block);
+    if (heading && lines.length === 1) {
+      const level = heading[1].length;
+      const id = uniqueId(heading[2]);
+      if (level === 2) headings.push({ id, text: heading[2] });
+      return `<h${level} id="${id}">${inline(heading[2])}</h${level}>`;
+    }
+    if (lines.every((l) => /^\s*[-*]\s+/.test(l))) {
+      return `<ul>${lines.map((l) => `<li>${inline(l.replace(/^\s*[-*]\s+/, ''))}</li>`).join('')}</ul>`;
+    }
+    if (lines.every((l) => /^\s*\d+\.\s+/.test(l))) {
+      return `<ol>${lines.map((l) => `<li>${inline(l.replace(/^\s*\d+\.\s+/, ''))}</li>`).join('')}</ol>`;
+    }
+    // a table: rows of | cells |, with a |---|---| line under the header
+    if (lines.length >= 2 && lines.every((l) => l.trim().startsWith('|')) && /^\|[\s:|-]+\|$/.test(lines[1].trim())) {
+      const cells = (row) => row.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      const head = cells(lines[0]);
+      const thead = head.some(Boolean) ? `<thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead>` : '';
+      const rows = lines.slice(2).map((r) => `<tr>${cells(r).map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`).join('');
+      return `<table>${thead}<tbody>${rows}</tbody></table>`;
+    }
+    return `<p>${lines.map(inline).join(' ')}</p>`;
+  }).join('\n');
+  return { html, headings };
+}
+
+function loadPost(file) {
+  const { meta, body } = parseFrontMatter(file.text);
+  const { html, headings } = markdownToHtml(body);
+  return {
+    title: meta.title,
+    date: meta.date,                                    // 'YYYY-MM-DD' sorts correctly as text
+    slug: file.name.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),   // the file name without its date
+    tags: (meta.tags ?? '').split(',').map((t) => slugify(t)).filter(Boolean),
+    summary: meta.summary ?? '',
+    bodyHtml: html,
+    headings,
+    words: (body.match(/\w+/g) ?? []).length,
+  };
+}
+
+const readingMinutes = (post) => Math.max(1, Math.ceil(post.words / 220));   // about 220 words a minute
+
+// Newest first. The posts are worked out once, when the page loads.
+const POSTS_LIST = FILES.map(loadPost).sort((a, b) => b.date.localeCompare(a.date));
+
+// Old addresses of posts that moved. Visiting one forwards to the new post, so old links keep working.
+const REDIRECTS = { 'beginner-friendly-builds': 'lordran-guide-hub', 'first-hours': 'first-hours-in-lordran' };
+
+const SITE = { title: 'Bonfire Notes', url: 'https://theoyanvno.github.io/bonfire-notes', tagline: 'A Dark Souls fan blog' };
+const escapeXml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// An RSS feed: the format feed readers subscribe to, so they hear about new posts.
+function rss(posts) {
+  const items = posts.map((p) =>
+    `<item><title>${escapeXml(p.title)}</title><link>${SITE.url}/posts/${p.slug}.html</link>`
+    + `<guid>${SITE.url}/posts/${p.slug}.html</guid><pubDate>${new Date(`${p.date}T00:00:00Z`).toUTCString()}</pubDate>`
+    + `<description>${escapeXml(p.summary)}</description></item>`).join('');
+  return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>${SITE.title}</title>`
+    + `<link>${SITE.url}</link><description>${escapeXml(SITE.tagline)}</description>${items}</channel></rss>`;
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const fmtDate = (key) => {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+};
+
+const card = (p) => `
+  <article class="card">
+    <p class="meta"><time datetime="${p.date}">${fmtDate(p.date)}</time> · ${readingMinutes(p)} min read</p>
+    <h2><a href="#/post/${p.slug}">${esc(p.title)}</a></h2>
+    <p>${esc(p.summary)}</p>
+    <p class="tags">${p.tags.map((t) => `<a href="#/tag/${t}" class="tag small">${esc(t)}</a>`).join('')}</p>
+  </article>`;
+
+const allTags = [...new Set(POSTS_LIST.flatMap((p) => p.tags))].sort();
+const tagCloud = (active) => `<nav class="tag-cloud" aria-label="Tags">
+  <a href="#/" class="tag${active ? '' : ' active'}">all</a>
+  ${allTags.map((t) => `<a href="#/tag/${t}" class="tag${t === active ? ' active' : ''}">${esc(t)}</a>`).join('')}</nav>`;
+
+function homePage(tag = null) {
+  const posts = tag ? POSTS_LIST.filter((p) => p.tags.includes(tag)) : POSTS_LIST;
+  const top = tag ? `<h1 class="page-title">Tagged “${esc(tag)}”</h1>`
+    : '<section class="hero"><h1>Rest here a while.</h1><p>A Dark Souls fan blog: guides, lore and stories from Lordran.</p></section>';
+  return { title: tag ? `Tagged ${tag}` : null, html: `${top}${tagCloud(tag)}<div class="cards">${posts.map(card).join('')}</div>` };
+}
+
+function postPage(slug) {
+  const i = POSTS_LIST.findIndex((p) => p.slug === slug);
+  if (i < 0) return notFound();
+  const post = POSTS_LIST[i];
+  const newer = POSTS_LIST[i - 1];
+  const older = POSTS_LIST[i + 1];
+  const toc = post.headings.length > 2
+    ? `<details class="toc"><summary>In this post</summary><ol>${post.headings.map((h) => `<li><a href="#/post/${post.slug}/${h.id}">${esc(h.text)}</a></li>`).join('')}</ol></details>`
+    : '';
+  return { title: post.title, html: `<article class="post">
+    <p class="meta"><time datetime="${post.date}">${fmtDate(post.date)}</time> · ${readingMinutes(post)} min read</p>
+    <h1>${esc(post.title)}</h1><p class="tags">${post.tags.map((t) => `<a href="#/tag/${t}" class="tag small">${esc(t)}</a>`).join('')}</p>
+    ${toc}
+    <div class="prose">${post.bodyHtml}</div></article>
+    <nav class="pager">${newer ? `<a href="#/post/${newer.slug}">← ${esc(newer.title)}</a>` : '<span></span>'}
+      ${older ? `<a href="#/post/${older.slug}">${esc(older.title)} →</a>` : ''}</nav>` };
+}
+
+const notFound = () => ({ title: 'Not found', html: '<h1 class="page-title">Nothing here</h1><p>That page has gone hollow. <a href="#/">All posts</a></p>' });
+
+function feedPage() {
+  const xml = rss(POSTS_LIST);
+  const url = URL.createObjectURL(new Blob([xml], { type: 'application/rss+xml' }));
+  return { title: 'RSS feed', html: `<h1 class="page-title">RSS feed</h1><p><a href="${url}" download="feed.xml">Download feed.xml</a></p><pre class="feed">${esc(xml)}</pre>` };
+}
+
+// The address after # says which page to show: #/, #/post/<slug>, #/tag/<tag> or #/feed.
+function route() {
+  const [, kind, arg, section] = /^#\/(post|tag|feed)?\/?([\w-]*)\/?([\w-]*)$/.exec(location.hash || '#/') ?? [];
+  if (kind === 'post' && REDIRECTS[arg]) return location.replace(`${location.href.split('#')[0]}#/post/${REDIRECTS[arg]}`);   // moved: forward, no history entry
+  const page = kind === 'post' ? postPage(arg)
+    : kind === 'tag' ? (allTags.includes(arg) ? homePage(arg) : notFound())
+    : kind === 'feed' ? feedPage()
+    : homePage();
+  $('page').innerHTML = page.html;
+  document.title = page.title ? `${page.title} · Bonfire Notes` : 'Bonfire Notes';
+  if (section) document.getElementById(section)?.scrollIntoView();   // a table-of-contents link
+  else scrollTo(0, 0);
+}
+addEventListener('hashchange', route);
+```
+
 ## Finish
 
 ### What you learned

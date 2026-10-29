@@ -13,7 +13,7 @@ export const GUIDES = [
     summary: 'A 9 x 9 grid, rule checks, a solver that explains every step and backtrack, and making puzzles at three levels.', load: () => import('./sudoku.js') },
   { id: 'sticky', title: 'Sticky Notes', emoji: '🗒️', level: 'Intermediate', time: 'about 3 hours', steps: 11, available: true,
     summary: 'Notes in four colors with a checklist mode, up to three at a time, and the Electron app that puts each one on the desktop by itself.', load: () => import('./sticky.js') },
-  { id: 'bonfire', title: 'Bonfire Notes (blog)', emoji: '🔥', level: 'Intermediate', time: 'about 3 hours', steps: 6, available: true,
+  { id: 'bonfire', title: 'Bonfire Notes (blog)', emoji: '🔥', level: 'Intermediate', time: 'about 3 hours', steps: 8, available: true,
     summary: 'Markdown posts with front matter, a safe Markdown converter, tag pages, RSS and redirects, floating embers, and the Python static site generator behind the real blog.', load: () => import('./bonfire.js') },
   { id: 'marvel', title: 'Marvel Character Database', emoji: '🦸', level: 'Intermediate', time: 'about 3 hours', steps: 0, available: false,
     summary: 'SQL tables, joins and search over 214 characters, MCU appearances, relationships, and cards with a photo slot.', load: () => import('./marvel.js') },
