@@ -15,7 +15,7 @@ export const GUIDES = [
     summary: 'Notes in four colors with a checklist mode, up to three at a time, and the Electron app that puts each one on the desktop by itself.', load: () => import('./sticky.js') },
   { id: 'bonfire', title: 'Bonfire Notes (blog)', emoji: '🔥', level: 'Intermediate', time: 'about 3 hours', steps: 10, available: true,
     summary: 'Markdown posts with front matter, a safe Markdown converter, tag pages, RSS and redirects, floating embers, and the Python static site generator behind the real blog.', load: () => import('./bonfire.js') },
-  { id: 'marvel', title: 'Marvel Character Database', emoji: '🦸', level: 'Intermediate', time: 'about 3 hours', steps: 5, available: true,
+  { id: 'marvel', title: 'Marvel Character Database', emoji: '🦸', level: 'Intermediate', time: 'about 3 hours', steps: 7, available: true,
     summary: 'SQL tables, joins and search over 214 characters, MCU appearances, relationships, and cards with a photo slot.', load: () => import('./marvel.js') },
   { id: 'chess', title: 'Chess Coach', emoji: '♟️', level: 'Advanced', time: 'about 3.5 hours', steps: 13, available: true,
     summary: 'Board state, every legal move, a computer opponent with alpha-beta search, and the coach that grades and explains every move.', load: () => import('./chess.js') },
