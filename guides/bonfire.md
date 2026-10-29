@@ -1641,6 +1641,168 @@ function route() {
 addEventListener('hashchange', route);
 ```
 
+## Session: Atmosphere
+
+## Step: Floating embers and a reading progress bar
+time: 20
+
+A Dark Souls blog should feel like resting at a bonfire. Behind the page, embers drift upward on a `<canvas>`.
+
+```svg Each frame, every ember rises, sways, fades, and starts again at the bottom
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 170" font-family="sans-serif"><rect x="10" y="10" width="200" height="150" rx="6" fill="#0c0a09"/><circle cx="78" cy="40" r="3.1" fill="#fdba74" opacity="0.42"/><circle cx="33" cy="90" r="2.4" fill="#fdba74" opacity="0.64"/><circle cx="30" cy="86" r="1.6" fill="#fdba74" opacity="0.63"/><circle cx="98" cy="29" r="1.7" fill="#fdba74" opacity="0.38"/><circle cx="96" cy="127" r="1.8" fill="#fdba74" opacity="0.81"/><circle cx="60" cy="102" r="3.9" fill="#fdba74" opacity="0.69"/><circle cx="124" cy="72" r="3.9" fill="#fdba74" opacity="0.56"/><circle cx="28" cy="132" r="2.2" fill="#fdba74" opacity="0.83"/><circle cx="46" cy="35" r="2.3" fill="#fdba74" opacity="0.40"/><circle cx="167" cy="43" r="3.0" fill="#fdba74" opacity="0.44"/><circle cx="135" cy="68" r="2.9" fill="#fdba74" opacity="0.55"/><circle cx="31" cy="28" r="2.0" fill="#fdba74" opacity="0.37"/><circle cx="142" cy="76" r="2.3" fill="#fdba74" opacity="0.58"/><circle cx="125" cy="79" r="2.2" fill="#fdba74" opacity="0.60"/><circle cx="163" cy="111" r="2.1" fill="#fdba74" opacity="0.74"/><circle cx="123" cy="88" r="3.7" fill="#fdba74" opacity="0.64"/><circle cx="151" cy="57" r="4.0" fill="#fdba74" opacity="0.50"/><circle cx="41" cy="74" r="3.4" fill="#fdba74" opacity="0.58"/><circle cx="47" cy="84" r="1.6" fill="#fdba74" opacity="0.62"/><circle cx="140" cy="119" r="2.9" fill="#fdba74" opacity="0.77"/><circle cx="178" cy="61" r="3.2" fill="#fdba74" opacity="0.52"/><circle cx="127" cy="95" r="2.6" fill="#fdba74" opacity="0.67"/><circle cx="171" cy="143" r="2.7" fill="#fdba74" opacity="0.87"/><circle cx="140" cy="28" r="3.3" fill="#fdba74" opacity="0.37"/><circle cx="136" cy="149" r="3.6" fill="#fdba74" opacity="0.90"/><circle cx="71" cy="70" r="3.2" fill="#fdba74" opacity="0.56"/><path d="M110 150 C 100 120, 125 100, 110 70 C 98 45, 118 30, 110 15" fill="none" stroke="#f97316" stroke-dasharray="3 3"/><text x="225" y="34" font-size="11">each frame, every ember:</text><text x="225" y="54" font-size="11">• rises by its speed</text><text x="225" y="72" font-size="11">• sways with Math.sin(drift)</text><text x="225" y="90" font-size="11">• fades as it nears the top</text><text x="225" y="108" font-size="11">• starts again at the bottom</text><text x="225" y="134" font-size="11" fill="#475569">requestAnimationFrame runs</text><text x="225" y="150" font-size="11" fill="#475569">this about 60 times a second</text></svg>
+```
+
+Each ember is a small object: position, size, speed, a sway angle and how bright it can get. On every frame:
+
+| Step | Code |
+|---|---|
+| clear the canvas | `ctx.clearRect(0, 0, w, h)` |
+| move up | `e.y -= e.speed` |
+| sway | `e.x += Math.sin(e.drift) * 0.4`, with `drift` growing a little each frame |
+| fade near the top | brightness `= Math.min(1, e.y / h) * e.life` |
+| draw a soft glow | a radial gradient from orange to transparent |
+| recycle | off the top? `Object.assign(e, spawn())` puts it back at the bottom |
+
+`requestAnimationFrame(tick)` asks the browser to run `tick` before the next screen refresh, about 60 times a second, and pauses automatically in hidden tabs. The number of embers scales with the window width (at most 70), so phones aren't overloaded. The canvas has `pointer-events: none` and sits behind the content, so it never gets in the way of clicks.
+
+**Reduced motion.** If someone has turned off animations in their system settings, the embers never start, and CSS hides the canvas.
+
+**Progress bar.** On post pages a thin glowing line at the top fills as you scroll: `scrollY` divided by how far the page *can* scroll (`scrollHeight - innerHeight`). The scroll listener is `{ passive: true }`, which promises the browser it won't block scrolling, so scrolling stays smooth.
+
+### Try it
+
+Watch the embers drift. Open a long post and scroll: the bar fills.
+
+check: js | embers drawn on a canvas | /getContext\(\s*['"]2d['"]\s*\)/
+check: js | an animation loop | /requestAnimationFrame\(\s*tick\s*\)/
+check: js | no motion for people who turned it off | /prefers-reduced-motion/
+check: js | a reading progress bar | /function\s+updateProgress\s*\(/
+
+quiz: Why use requestAnimationFrame instead of setInterval for the embers?
+- [x] It runs in step with the screen's refreshes and pauses in hidden tabs, so it's smoother and saves battery
+- [ ] setInterval can't draw on a canvas
+- [ ] It runs exactly 100 times a second
+why: The browser schedules the frames, which is what animation needs.
+quiz: What does the scroll listener's { passive: true } promise?
+- [ ] That it runs only once
+- [x] That it won't call preventDefault(), so the browser can scroll without waiting for it
+- [ ] That it ignores fast scrolling
+why: Passive listeners keep scrolling smooth.
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const fmtDate = (key) => {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+};
+
+const card = (p) => `
+  <article class="card">
+    <p class="meta"><time datetime="${p.date}">${fmtDate(p.date)}</time> · ${readingMinutes(p)} min read</p>
+    <h2><a href="#/post/${p.slug}">${esc(p.title)}</a></h2>
+    <p>${esc(p.summary)}</p>
+    <p class="tags">${p.tags.map((t) => `<a href="#/tag/${t}" class="tag small">${esc(t)}</a>`).join('')}</p>
+  </article>`;
+
+const allTags = [...new Set(POSTS_LIST.flatMap((p) => p.tags))].sort();
+const tagCloud = (active) => `<nav class="tag-cloud" aria-label="Tags">
+  <a href="#/" class="tag${active ? '' : ' active'}">all</a>
+  ${allTags.map((t) => `<a href="#/tag/${t}" class="tag${t === active ? ' active' : ''}">${esc(t)}</a>`).join('')}</nav>`;
+
+function homePage(tag = null) {
+  const posts = tag ? POSTS_LIST.filter((p) => p.tags.includes(tag)) : POSTS_LIST;
+  const top = tag ? `<h1 class="page-title">Tagged “${esc(tag)}”</h1>`
+    : '<section class="hero"><h1>Rest here a while.</h1><p>A Dark Souls fan blog: guides, lore and stories from Lordran.</p></section>';
+  return { title: tag ? `Tagged ${tag}` : null, html: `${top}${tagCloud(tag)}<div class="cards">${posts.map(card).join('')}</div>` };
+}
+
+function postPage(slug) {
+  const i = POSTS_LIST.findIndex((p) => p.slug === slug);
+  if (i < 0) return notFound();
+  const post = POSTS_LIST[i];
+  const newer = POSTS_LIST[i - 1];
+  const older = POSTS_LIST[i + 1];
+  const toc = post.headings.length > 2
+    ? `<details class="toc"><summary>In this post</summary><ol>${post.headings.map((h) => `<li><a href="#/post/${post.slug}/${h.id}">${esc(h.text)}</a></li>`).join('')}</ol></details>`
+    : '';
+  return { title: post.title, html: `<article class="post">
+    <p class="meta"><time datetime="${post.date}">${fmtDate(post.date)}</time> · ${readingMinutes(post)} min read</p>
+    <h1>${esc(post.title)}</h1><p class="tags">${post.tags.map((t) => `<a href="#/tag/${t}" class="tag small">${esc(t)}</a>`).join('')}</p>
+    ${toc}
+    <div class="prose">${post.bodyHtml}</div></article>
+    <nav class="pager">${newer ? `<a href="#/post/${newer.slug}">← ${esc(newer.title)}</a>` : '<span></span>'}
+      ${older ? `<a href="#/post/${older.slug}">${esc(older.title)} →</a>` : ''}</nav>` };
+}
+
+const notFound = () => ({ title: 'Not found', html: '<h1 class="page-title">Nothing here</h1><p>That page has gone hollow. <a href="#/">All posts</a></p>' });
+
+function feedPage() {
+  const xml = rss(POSTS_LIST);
+  const url = URL.createObjectURL(new Blob([xml], { type: 'application/rss+xml' }));
+  return { title: 'RSS feed', html: `<h1 class="page-title">RSS feed</h1><p><a href="${url}" download="feed.xml">Download feed.xml</a></p><pre class="feed">${esc(xml)}</pre>` };
+}
+
+// The address after # says which page to show: #/, #/post/<slug>, #/tag/<tag> or #/feed.
+function route() {
+  const [, kind, arg, section] = /^#\/(post|tag|feed)?\/?([\w-]*)\/?([\w-]*)$/.exec(location.hash || '#/') ?? [];
+  if (kind === 'post' && REDIRECTS[arg]) return location.replace(`${location.href.split('#')[0]}#/post/${REDIRECTS[arg]}`);   // moved: forward, no history entry
+  const page = kind === 'post' ? postPage(arg)
+    : kind === 'tag' ? (allTags.includes(arg) ? homePage(arg) : notFound())
+    : kind === 'feed' ? feedPage()
+    : homePage();
+  $('page').innerHTML = page.html;
+  document.title = page.title ? `${page.title} · Bonfire Notes` : 'Bonfire Notes';
+  if (section) document.getElementById(section)?.scrollIntoView();   // a table-of-contents link
+  else scrollTo(0, 0);
+  updateProgress();
+}
+addEventListener('hashchange', route);
+
+// ---- floating embers: drawn on a canvas behind the page ----
+(() => {
+  const canvas = $('embers');
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;   // no motion for people who turned it off
+  const ctx = canvas.getContext('2d');
+  let w, h;
+  const resize = () => { w = canvas.width = innerWidth; h = canvas.height = innerHeight; };
+  const spawn = (anywhere = false) => ({
+    x: Math.random() * w, y: anywhere ? Math.random() * h : h + 10,
+    r: Math.random() * 1.8 + 0.6, speed: Math.random() * 0.6 + 0.25,
+    drift: Math.random() * Math.PI * 2, life: Math.random() * 0.6 + 0.4,
+  });
+  resize();
+  addEventListener('resize', resize);
+  const embers = Array.from({ length: Math.min(70, Math.floor(innerWidth / 18)) }, () => spawn(true));
+  const tick = () => {
+    ctx.clearRect(0, 0, w, h);
+    for (const e of embers) {
+      e.y -= e.speed;
+      e.drift += 0.02;
+      e.x += Math.sin(e.drift) * 0.4;                     // a gentle side-to-side sway
+      const fade = Math.min(1, e.y / h) * e.life;         // dimmer as it rises
+      const glow = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.r * 4);
+      glow.addColorStop(0, `rgba(253, 186, 116, ${fade})`);
+      glow.addColorStop(1, 'rgba(249, 115, 22, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.r * 4, 0, Math.PI * 2);
+      ctx.fill();
+      if (e.y < -10) Object.assign(e, spawn());           // off the top: start again at the bottom
+    }
+    requestAnimationFrame(tick);
+  };
+  tick();
+})();
+
+// ---- reading progress bar: how far down the page you've scrolled ----
+function updateProgress() {
+  const max = document.documentElement.scrollHeight - innerHeight;
+  $('progress').style.width = location.hash.startsWith('#/post/') && max > 0 ? `${(scrollY / max) * 100}%` : '0';
+}
+addEventListener('scroll', updateProgress, { passive: true });
+```
+
 ## Finish
 
 ### What you learned
