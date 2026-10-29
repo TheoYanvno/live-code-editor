@@ -1121,6 +1121,598 @@ const demo = new AccountService({ store: memoryStore(), passwords, tokens });
 })();
 ```
 
+## Session: An API in one function
+
+## Step: A REST API as one function
+time: 20
+
+A real app talks to its server through an **API**: requests like `POST /api/login` with a JSON body, answered with a **status code** and JSON. This project's trick is to write the whole API as **one plain function**:
+
+```svg One function, two homes: the Node server and the browser demo run the same API code
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 150" font-family="sans-serif"><rect x="10" y="20" width="120" height="44" rx="6" fill="#e2e8f0" stroke="#475569"/><text x="70" y="38" text-anchor="middle" font-size="10">{ method, path,</text><text x="70" y="52" text-anchor="middle" font-size="10">body, token }</text><rect x="160" y="20" width="110" height="44" rx="6" fill="#fef9c3" stroke="#475569"/><text x="215" y="46" text-anchor="middle" font-size="11">handleApi()</text><rect x="300" y="20" width="120" height="44" rx="6" fill="#bbf7d0" stroke="#475569"/><text x="360" y="38" text-anchor="middle" font-size="10">{ status, body,</text><text x="360" y="52" text-anchor="middle" font-size="10">session }</text><line x1="130" y1="42" x2="160" y2="42" stroke="#475569" stroke-width="2"/><line x1="270" y1="42" x2="300" y2="42" stroke="#475569" stroke-width="2"/><text x="110" y="96" text-anchor="middle" font-size="11">Node server: real HTTP,</text><text x="110" y="112" text-anchor="middle" font-size="11">HttpOnly cookie, SQLite</text><text x="320" y="96" text-anchor="middle" font-size="11">this guide and the live demo:</text><text x="320" y="112" text-anchor="middle" font-size="11">called directly in the browser</text><text x="215" y="140" text-anchor="middle" font-size="11" fill="#475569">the same rules and messages in both, because the API is just a function</text></svg>
+```
+
+`handleApi(service, request)` takes `{ method, path, body, token }` and returns `{ status, body, session }`. It never touches the network itself. The Node server turns real HTTP requests into that shape and sends the answer back; the live demo (and this guide) just calls the function directly. Either way, the validation, status codes and messages are identical.
+
+| Method | Path | Answer |
+|---|---|---|
+| POST | `/api/signup` | `201` and a new session |
+| POST | `/api/login` | `200` and a session, or `401` / `429` |
+| POST | `/api/logout` | `200`, and the session is cleared |
+| GET | `/api/me` | `{ user }`, or `{ user: null }` |
+| GET | `/api/favorites` | your favorites, or `401` if you're not logged in |
+| POST | `/api/favorites` | `201` and the saved favorite |
+| POST | `/api/favorites/import` | how many were added |
+| DELETE | `/api/favorites/:id` | `204`; you can only delete your own |
+
+An `AccountError` becomes a status and an `{ error, fields }` body; anything unexpected becomes a `500` with a polite message, and the details go to the console, never to the user.
+
+On the page side, `call(method, path, body)` sends a request, keeps the session token, and throws an `ApiError` for any status of 400 or more, so page code can use `try`/`catch`.
+
+Favorites are added to the service and store too: saving the same text twice keeps one copy, and deleting checks the favorite belongs to you.
+
+### Try it
+
+The console asks for favorites without logging in (401) and sends a bad sign-up (400, with a message for each field).
+
+check: js | the API is one function | /async\s+function\s+handleApi\s*\(/
+check: js | routes by method and path | /const\s+route\s*=\s*`\$\{method\}\s+\$\{path\}`/
+check: js | favorites need a log-in | /error\(\s*401/
+check: js | the page's call() | /async\s+function\s+call\s*\(/
+
+quiz: Why write the API as a function instead of directly in the server code?
+- [ ] Functions run faster than servers
+- [x] The same function can run behind a real server or right in the browser, so both behave exactly alike
+- [ ] Servers can't call functions
+why: Keeping HTTP at the edges means the rules are written, and tested, once.
+quiz: A request asks to DELETE favorite 7, which belongs to someone else. What happens?
+- [ ] It's deleted
+- [x] The store only removes favorites with your user id, so nothing is removed and the API answers 404
+- [ ] The other user is logged out
+why: Every favorite query includes the signed-in user's id, so one user can never touch another's data.
+
+```js accounts
+// Account rules, written so they don't care where data is stored (the real app runs them on a Node server
+// with SQLite, and in the browser for the live demo).
+const MAX_FAILED_LOGINS = 5;
+const LOCKOUT_MINUTES = 15;
+const SESSION_DAYS = 30;
+
+class AccountError extends Error {
+  constructor(status, message, extra = {}) {
+    super(message);
+    this.status = status;          // an HTTP status code: 400 bad input, 401 wrong password, 409 taken, 429 too many tries
+    Object.assign(this, extra);
+  }
+}
+
+// Usernames ignore case: "Anthony" and "anthony" are the same account.
+const normalizeUsername = (name) => String(name ?? '').trim().toLowerCase();
+
+function validateSignup({ username, password }) {
+  const errors = {};
+  const name = normalizeUsername(username);
+  if (!/^[a-z0-9_]{3,20}$/.test(name)) errors.username = 'Use 3-20 letters, numbers or underscores.';
+  const pw = String(password ?? '');
+  if (pw.length < 8) errors.password = 'Use at least 8 characters.';
+  else if (pw.length > 128) errors.password = 'Use 128 characters or fewer.';
+  else if (pw.toLowerCase() === name) errors.password = "Your password can't be your username.";
+  return errors;
+}
+
+// ---- passwords, with the browser's Web Crypto API ----
+const ITERATIONS = 210_000;
+const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const b64ToBytes = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+
+async function pbkdf2(password, salt, iterations) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(password).normalize('NFKC')), 'PBKDF2', false, ['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256));
+}
+
+const passwords = {
+  // a new random salt for every password, so two people with the same password get different hashes
+  async hash(password) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    return `pbkdf2$${ITERATIONS}$${bytesToB64(salt)}$${bytesToB64(await pbkdf2(password, salt, ITERATIONS))}`;
+  },
+  async verify(password, stored) {
+    const [scheme, iterations, salt, hash] = String(stored).split('$');
+    if (scheme !== 'pbkdf2' || !hash) return false;
+    const actual = await pbkdf2(password, b64ToBytes(salt), Number(iterations));
+    const expected = b64ToBytes(hash);
+    // compare every byte, so the time taken doesn't depend on where they differ
+    let diff = actual.length ^ expected.length;
+    for (let i = 0; i < Math.min(actual.length, expected.length); i++) diff |= actual[i] ^ expected[i];
+    return diff === 0;
+  },
+};
+
+// ---- session tokens: 256 random bits; only a SHA-256 hash of each one is stored ----
+const tokens = {
+  create() {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    return bytesToB64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  },
+  async hash(token) {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(token))));
+    return [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
+  },
+};
+
+// Storage in memory, for this guide. The real app swaps in SQLite or IndexedDB with the same methods.
+function memoryStore() {
+  const state = { nextId: 1, users: [], sessions: [], favorites: [], attempts: {} };
+  return {
+    async createUser({ username, passwordHash, createdAt }) {
+      const id = state.nextId++;
+      state.users.push({ id, username, passwordHash, createdAt });
+      return id;
+    },
+    async userByName(name) { return state.users.find((u) => u.username === name) ?? null; },
+    async userById(id) { return state.users.find((u) => u.id === id) ?? null; },
+    async createSession(session) { state.sessions.push({ ...session }); },
+    async session(tokenHash) { return state.sessions.find((s) => s.tokenHash === tokenHash) ?? null; },
+    async deleteSession(tokenHash) { state.sessions = state.sessions.filter((s) => s.tokenHash !== tokenHash); },
+    async attempts(key) { return state.attempts[key] ?? null; },
+    async saveAttempts(key, value) { state.attempts[key] = { ...value }; },
+    async clearAttempts(key) { delete state.attempts[key]; },
+    async favorites(userId) {
+      return state.favorites.filter((f) => f.userId === userId).sort((a, b) => b.id - a.id).map(({ id, kind, text }) => ({ id, kind, text }));
+    },
+    async addFavorite(userId, { text, kind }) {
+      let fav = state.favorites.find((f) => f.userId === userId && f.text === text);   // the same text twice keeps one copy
+      if (!fav) state.favorites.push((fav = { id: state.nextId++, userId, kind, text }));
+      return { id: fav.id, kind: fav.kind, text: fav.text };
+    },
+    async removeFavorite(userId, id) {
+      const before = state.favorites.length;
+      state.favorites = state.favorites.filter((f) => !(f.id === id && f.userId === userId));   // only your own
+      return state.favorites.length < before;
+    },
+  };
+}
+
+class AccountService {
+  constructor({ store, passwords, tokens, now = () => Date.now() }) {
+    this.store = store;
+    this.passwords = passwords;
+    this.tokens = tokens;
+    this.now = now;
+  }
+
+  async signup({ username, password }) {
+    const errors = validateSignup({ username, password });
+    if (Object.keys(errors).length) throw new AccountError(400, 'Please fix the highlighted fields.', { fields: errors });
+    const name = normalizeUsername(username);
+    if (await this.store.userByName(name)) {
+      throw new AccountError(409, 'That username is taken.', { fields: { username: 'That username is taken.' } });
+    }
+    const passwordHash = await this.passwords.hash(password);
+    const id = await this.store.createUser({ username: name, passwordHash, createdAt: this.now() });
+    return this.#startSession(id, name);
+  }
+
+  async login({ username, password }) {
+    const name = normalizeUsername(username);
+    const key = `login:${name}`;
+    await this.#checkLockout(key);
+    const user = name ? await this.store.userByName(name) : null;
+    // hash even when the user doesn't exist, so the time taken doesn't reveal which usernames exist
+    const ok = user
+      ? await this.passwords.verify(String(password ?? ''), user.passwordHash)
+      : (await this.passwords.hash(String(password ?? '')), false);
+    if (!ok) {
+      const left = await this.#recordFailure(key);
+      throw new AccountError(401, left > 0 ? 'Wrong username or password.' : `Too many failed attempts. Try again in ${LOCKOUT_MINUTES} minutes.`);
+    }
+    await this.store.clearAttempts(key);
+    return this.#startSession(user.id, user.username);
+  }
+
+  async logout(token) {
+    if (token) await this.store.deleteSession(await this.tokens.hash(token));
+  }
+
+  // the signed-in user for a session token, or null; expired sessions are removed
+  async userForToken(token) {
+    if (!token) return null;
+    const tokenHash = await this.tokens.hash(token);
+    const session = await this.store.session(tokenHash);
+    if (!session) return null;
+    if (session.expiresAt <= this.now()) {
+      await this.store.deleteSession(tokenHash);
+      return null;
+    }
+    const user = await this.store.userById(session.userId);
+    return user ? { id: user.id, username: user.username } : null;
+  }
+
+  // ---- favorites ----
+  async favorites(userId) { return this.store.favorites(userId); }
+
+  async addFavorite(userId, { text, kind }) {
+    const t = String(text ?? '').trim();
+    if (!t || t.length > 1000 || !['quote', 'joke'].includes(kind)) throw new AccountError(400, 'That favorite is not valid.');
+    return this.store.addFavorite(userId, { text: t, kind });
+  }
+
+  async removeFavorite(userId, id) {
+    if (!(await this.store.removeFavorite(userId, Number(id)))) throw new AccountError(404, 'That favorite was not found.');
+  }
+
+  // favorites saved while logged out move into the account; ones it already has are skipped
+  async importFavorites(userId, items) {
+    let added = 0;
+    for (const item of Array.isArray(items) ? items : []) {
+      const before = (await this.store.favorites(userId)).length;
+      await this.addFavorite(userId, item).catch(() => {});
+      if ((await this.store.favorites(userId)).length > before) added++;
+    }
+    return added;
+  }
+
+  // ---- helpers (# makes them private to the class) ----
+  async #startSession(userId, username) {
+    const token = this.tokens.create();
+    const expiresAt = this.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
+    await this.store.createSession({ tokenHash: await this.tokens.hash(token), userId, expiresAt });
+    return { token, expiresAt, user: { id: userId, username } };
+  }
+
+  async #checkLockout(key) {
+    const a = await this.store.attempts(key);
+    if (!a) return;
+    const windowMs = LOCKOUT_MINUTES * 60 * 1000;
+    if (this.now() - a.firstAt > windowMs) return this.store.clearAttempts(key);
+    if (a.count >= MAX_FAILED_LOGINS) {
+      const minutes = Math.ceil((a.firstAt + windowMs - this.now()) / 60000);
+      throw new AccountError(429, `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
+    }
+  }
+
+  async #recordFailure(key) {
+    const a = await this.store.attempts(key);
+    const fresh = !a || this.now() - a.firstAt > LOCKOUT_MINUTES * 60 * 1000;
+    const next = fresh ? { count: 1, firstAt: this.now() } : { ...a, count: a.count + 1 };
+    await this.store.saveAttempts(key, next);
+    return MAX_FAILED_LOGINS - next.count;
+  }
+}
+```
+
+```js api
+// The account API as one plain function: a request goes in, a response comes out.
+// request:  { method, path, body, token }     response: { status, body, session? }
+async function handleApi(service, { method, path, body = {}, token = null }) {
+  try {
+    const route = `${method} ${path}`;
+    if (route === 'POST /api/signup') {
+      const s = await service.signup(body);
+      return { status: 201, body: { user: s.user }, session: { token: s.token } };
+    }
+    if (route === 'POST /api/login') {
+      const s = await service.login(body);
+      return { status: 200, body: { user: s.user }, session: { token: s.token } };
+    }
+    if (route === 'POST /api/logout') {
+      await service.logout(token);
+      return { status: 200, body: { ok: true }, session: { clear: true } };
+    }
+    const user = await service.userForToken(token);
+    if (route === 'GET /api/me') return { status: 200, body: { user } };
+
+    if (path.startsWith('/api/favorites')) {
+      if (!user) return error(401, 'Please log in to see your saved favorites.');
+      if (route === 'GET /api/favorites') return { status: 200, body: { favorites: await service.favorites(user.id) } };
+      if (route === 'POST /api/favorites') return { status: 201, body: { favorite: await service.addFavorite(user.id, body) } };
+      if (route === 'POST /api/favorites/import') return { status: 200, body: { added: await service.importFavorites(user.id, body.items) } };
+      const match = /^DELETE \/api\/favorites\/(\d+)$/.exec(route);
+      if (match) {
+        await service.removeFavorite(user.id, Number(match[1]));
+        return { status: 204, body: null };
+      }
+    }
+    return error(404, 'Not found.');
+  } catch (err) {
+    if (err instanceof AccountError) return error(err.status, err.message, err.fields ? { fields: err.fields } : {});
+    console.error(err);
+    return error(500, 'Something went wrong on our end. Please try again.');
+  }
+}
+const error = (status, message, extra = {}) => ({ status, body: { error: message, ...extra } });
+
+class ApiError extends Error {
+  constructor(status, body) {
+    super(body?.error ?? `Request failed (${status})`);
+    this.status = status;
+    this.fields = body?.fields ?? {};
+  }
+}
+
+// The page talks to the API through call(). Here it runs in the page itself, keeping the session token in a
+// variable; a real server keeps it in an HttpOnly cookie that page scripts can't read at all.
+const service = new AccountService({ store: memoryStore(), passwords, tokens });
+let sessionToken = null;
+async function call(method, path, body) {
+  const res = await handleApi(service, { method, path, body, token: sessionToken });
+  if (res.session) sessionToken = res.session.clear ? null : res.session.token;
+  if (res.status >= 400) throw new ApiError(res.status, res.body);
+  return res.body;
+}
+```
+
+```js go
+loadFavorites();
+setMode('quote');
+
+// Try the API in the console (made-up demo values only)
+(async () => {
+  console.log(await handleApi(service, { method: 'GET', path: '/api/favorites' }));          // 401: not logged in
+  const r = await handleApi(service, { method: 'POST', path: '/api/signup', body: { username: 'x', password: 'short' } });
+  console.log(r.status, r.body.fields);                                                        // 400 with field messages
+})();
+```
+
+## Step: Log in, and favorites that follow you
+time: 20
+
+Now the page gets its account features: a **Log in** button, a dialog with *Log in* and *Create account* tabs, and favorites saved to the account.
+
+**The dialog** is a `<dialog>` element: `showModal()` opens it on top of the page, dims everything behind it and keeps keyboard focus inside. `setAuthMode()` switches the title, the button text and the password field's `autocomplete` (`new-password` for sign-up, so password managers offer to make one; `current-password` for log-in, so they fill it in).
+
+**Errors where they belong.** When the API answers 400 with `fields`, each message goes right under its box, and the box gets `aria-invalid="true"` so screen readers announce it. Other errors (wrong password, lockout) show at the bottom of the form.
+
+**Favorites in the account.** When you're logged in, Save and remove go through `call()` to the API. When you log in, anything you'd saved before is sent to `/api/favorites/import`, so nothing is lost, and the toast says how many moved. Log out and you're back to favorites in this browser.
+
+| | Logged out | Logged in |
+|---|---|---|
+| Save | this browser | `POST /api/favorites` |
+| ★ Saved tab | this browser's list | `GET /api/favorites` |
+| Remove | this browser | `DELETE /api/favorites/:id` |
+
+Accounts in this guide live in memory, so they last until the preview reloads; the note in the dialog says so. Use made-up names and passwords.
+
+### Try it
+
+Save a quote while logged out. Create an account (try a 2-letter username first to see the field message): your saved quote moves into it. Log out, log back in with the wrong password a few times, then the right one.
+
+check: js | the log-in dialog opens | /\$\(\s*['"]authDialog['"]\s*\)\.showModal\(\)/
+check: js | field messages go under each box | /setAttribute\(\s*['"]aria-invalid['"]\s*,\s*['"]true['"]\s*\)/
+check: js | saved favorites move into the account | /['"]\/api\/favorites\/import['"]/
+check: js | log out | /\$\(\s*['"]logoutBtn['"]\s*\)\.onclick/
+
+quiz: Why set autocomplete="new-password" on the sign-up form?
+- [ ] It makes the password longer
+- [x] Password managers then offer to create a strong password instead of filling in an old one
+- [ ] It hides the password
+why: The right autocomplete value lets the browser help with the right job.
+quiz: What happens to favorites saved before logging in?
+- [ ] They're deleted
+- [x] They're sent to /api/favorites/import and added to the account, skipping duplicates
+- [ ] They stay only in this browser
+why: Moving them in means logging in never loses anything.
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let mode = 'quote';                 // 'quote', 'joke' or 'fav'
+let current = null;                 // the item on the card
+let typing = null;                  // the typewriter's timer
+let favorites = [];                 // [{ id?, text, kind }]
+let user = null;                    // { id, username } when logged in
+// Saved while logged out: kept in this browser. Storage can be blocked (this editor's preview blocks it),
+// so a copy also lives in memory and the page keeps working.
+let memorySaved = [];
+const local = {
+  get: () => { try { return JSON.parse(localStorage.getItem('qj-favorites')) ?? memorySaved; } catch { return memorySaved; } },
+  set: (v) => { memorySaved = v; try { localStorage.setItem('qj-favorites', JSON.stringify(v)); } catch { /* blocked: memory only */ } },
+};
+
+const pool = () => filterByTag(mode === 'quote' ? QUOTES : JOKES, $('tag').value);
+const asText = (item) => (item.setup ? formatJoke(item) : formatQuote(item));
+
+function setMode(next) {
+  mode = next;
+  document.body.className = next;          // each tab has its own background colors
+  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === next)));
+  $('generator').hidden = next === 'fav';
+  $('favorites').hidden = next !== 'fav';
+  if (next === 'fav') return renderFavorites();
+  const items = next === 'quote' ? QUOTES : JOKES;
+  $('tag').innerHTML = ['all', ...allTags(items)]
+    .map((t) => `<option value="${t}">${t === 'all' ? 'Everything' : t[0].toUpperCase() + t.slice(1)}</option>`).join('');
+  show(items[dailyIndex(items.length)], true);   // each tab opens on today's pick
+}
+
+// Types the text one letter at a time, then calls done(). Shown at once for people who turned off motion.
+function typeText(el, text, done) {
+  clearInterval(typing);
+  if (reduced) { el.textContent = text; return done?.(); }
+  el.textContent = '';
+  el.classList.add('typing');
+  let i = 0;
+  typing = setInterval(() => {
+    el.textContent = text.slice(0, ++i);
+    if (i >= text.length) { clearInterval(typing); el.classList.remove('typing'); done?.(); }
+  }, 22);
+}
+
+function show(item, isDaily = false) {
+  current = item;
+  $('card').classList.remove('flip');
+  void $('card').offsetWidth;                 // reading the size restarts the CSS animation
+  $('card').classList.add('flip');
+  $('daily').hidden = !isDaily;
+  $('sub').className = 'sub';
+  $('reveal').hidden = true;
+  $('sub').textContent = '';
+  if (item.setup) {
+    typeText($('main'), item.setup, () => { $('reveal').hidden = false; });
+  } else {
+    typeText($('main'), `“${item.text}”`, () => { $('sub').textContent = `— ${item.author}, ${item.source}`; });
+  }
+  $('save').textContent = favorites.some((f) => f.text === asText(item)) ? '★ Saved' : '☆ Save';
+  $('share').href = `https://twitter.com/intent/tweet?text=${encodeURIComponent(asText(item))}`;
+}
+
+function next() {
+  const items = pool();
+  show(items[nextIndex(items.length, items.indexOf(current))]);
+}
+
+function revealPunchline() {
+  if (!current?.setup) return;
+  $('reveal').hidden = true;
+  $('sub').className = 'sub punch';
+  $('sub').textContent = current.punchline;
+}
+
+function toast(msg) {
+  $('toast').textContent = msg;
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { $('toast').textContent = ''; }, 1800);
+}
+
+const JOKE_TEXTS = new Set(JOKES.map(formatJoke));
+const kindOf = (text) => (JOKE_TEXTS.has(text) ? 'joke' : 'quote');
+
+// Logged in: the account's favorites. Logged out: this browser's.
+async function loadFavorites() {
+  if (user) {
+    try { favorites = (await call('GET', '/api/favorites')).favorites; } catch (err) { toast(err.message); }
+  } else {
+    favorites = local.get().map((text) => ({ text, kind: kindOf(text) }));
+  }
+}
+
+async function toggleSave() {
+  const text = asText(current);
+  const existing = favorites.find((f) => f.text === text);
+  try {
+    if (user) {
+      if (existing) await call('DELETE', `/api/favorites/${existing.id}`);
+      else await call('POST', '/api/favorites', { text, kind: current.setup ? 'joke' : 'quote' });
+    } else {
+      local.set(existing ? local.get().filter((f) => f !== text) : [text, ...local.get()]);
+    }
+    await loadFavorites();
+  } catch (err) {
+    return toast(err.message);
+  }
+  $('save').textContent = existing ? '☆ Save' : '★ Saved';
+  toast(existing ? 'Removed from saved' : user ? 'Saved to your account!' : 'Saved!');
+}
+
+// Saved text came from our data, but escape it anyway: anything going into innerHTML should be.
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function renderFavorites() {
+  $('favEmpty').hidden = favorites.length > 0;
+  $('favList').innerHTML = favorites.map((f, i) => `<li><span>${esc(f.text)}</span><button data-i="${i}" aria-label="Remove">✕</button></li>`).join('');
+  $('favWhere').textContent = user ? `Saved to ${user.username}'s account.` : 'Saved in this browser. Log in to keep them in an account.';
+}
+
+document.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
+$('tag').onchange = next;
+$('next').onclick = next;
+$('reveal').onclick = revealPunchline;
+// Space: a new one, or the punchline if it's waiting (but not while typing in a form field)
+addEventListener('keydown', (e) => {
+  if (e.target.matches('select, input') || mode === 'fav' || $('authDialog').open) return;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (current?.setup && !$('reveal').hidden) revealPunchline();
+    else next();
+  }
+});
+$('save').onclick = toggleSave;
+$('copy').onclick = async () => {
+  try { await navigator.clipboard.writeText(asText(current)); toast('Copied to clipboard'); } catch { toast('Copy not allowed here'); }
+};
+$('favList').onclick = async (e) => {
+  const i = e.target.dataset.i;
+  if (i === undefined) return;
+  const fav = favorites[Number(i)];
+  try {
+    if (user) await call('DELETE', `/api/favorites/${fav.id}`);
+    else local.set(local.get().filter((f) => f !== fav.text));
+  } catch (err) { toast(err.message); }
+  await loadFavorites();
+  renderFavorites();
+};
+
+// ---- accounts: the log-in dialog ----
+let authMode = 'login';
+
+function setAuthMode(next) {
+  authMode = next;
+  document.querySelectorAll('[data-auth]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.auth === next)));
+  $('authTitle').textContent = next === 'signup' ? 'Create your account' : 'Welcome back';
+  $('authSubmit').textContent = next === 'signup' ? 'Create account' : 'Log in';
+  $('password').autocomplete = next === 'signup' ? 'new-password' : 'current-password';
+  clearAuthErrors();
+}
+
+function clearAuthErrors() {
+  for (const f of ['username', 'password']) { $(`${f}Error`).textContent = ''; $(f).removeAttribute('aria-invalid'); }
+  $('authError').textContent = '';
+}
+
+document.querySelectorAll('[data-auth]').forEach((b) => { b.onclick = () => setAuthMode(b.dataset.auth); });
+$('loginBtn').onclick = () => { setAuthMode('login'); $('authForm').reset(); $('authDialog').showModal(); $('username').focus(); };
+$('authCancel').onclick = () => $('authDialog').close();
+
+$('authForm').onsubmit = async (e) => {
+  e.preventDefault();
+  clearAuthErrors();
+  const body = { username: $('username').value.trim(), password: $('password').value };
+  $('authSubmit').disabled = true;
+  try {
+    user = (await call('POST', authMode === 'signup' ? '/api/signup' : '/api/login', body)).user;
+    // move anything saved before logging in into the account, so nothing is lost
+    const pending = local.get().map((text) => ({ text, kind: kindOf(text) }));
+    const moved = pending.length ? (await call('POST', '/api/favorites/import', { items: pending })).added : 0;
+    local.set([]);
+    $('authDialog').close();
+    await afterAuthChange();
+    toast(`${authMode === 'signup' ? 'Account created' : 'Logged in'} as ${user.username}.${moved ? ` ${moved} saved item${moved === 1 ? '' : 's'} moved to your account.` : ''}`);
+  } catch (err) {
+    if (!(err instanceof ApiError)) { $('authError').textContent = 'Something went wrong.'; return; }
+    // the API names which field is wrong, so the message goes right under it
+    for (const [field, message] of Object.entries(err.fields)) {
+      $(`${field}Error`).textContent = message;
+      $(field).setAttribute('aria-invalid', 'true');
+    }
+    if (!Object.keys(err.fields).length) $('authError').textContent = err.message;
+  } finally {
+    $('authSubmit').disabled = false;
+  }
+};
+
+$('logoutBtn').onclick = async () => {
+  try { await call('POST', '/api/logout', {}); } catch { /* the session is gone either way */ }
+  user = null;
+  await afterAuthChange();
+  toast('Logged out.');
+};
+
+async function afterAuthChange() {
+  $('who').hidden = !user;
+  $('who').textContent = user ? `👤 ${user.username}` : '';
+  $('loginBtn').hidden = !!user;
+  $('logoutBtn').hidden = !user;
+  await loadFavorites();
+  if (mode === 'fav') renderFavorites();
+  else if (current) $('save').textContent = favorites.some((f) => f.text === asText(current)) ? '★ Saved' : '☆ Save';
+}
+```
+
+```js go
+$('account').hidden = false;
+afterAuthChange();
+setMode('quote');
+```
+
 ## Finish
 
 ### What you learned
