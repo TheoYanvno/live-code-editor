@@ -864,6 +864,452 @@ $('next').onclick = () => step(1);
 $('original').onchange = () => goTo(current.section, current.chapter);
 ```
 
+## Session: Ask the sand
+
+## Step: Matching a question to a topic
+time: 20
+
+The sand answers questions like *"How do the Bible and the Qur'an see Jesus?"* There's no AI here: the `topics` block holds 8 of the real app's 76 topics, each with a short, neutral answer for each book and a list of **keywords** that point to it. Matching a free-typed question to a topic takes three steps.
+
+**1. Normalize.** `normalize()` makes different ways of writing the same thing identical:
+
+| Change | Example |
+|---|---|
+| lowercase, accents and vowel marks removed | `Qur'ān` → `qurʾan` |
+| one spelling | `Koran`, `Qur'an`, `Coran` → `quran` |
+| only letters and digits, single spaces | `Jesus?` → `jesus` |
+| padded with a space at each end | `" how old is the torah "` |
+
+The padding matters: `q.includes(' age ')` matches the word *age* but not *page* or *stage*.
+
+**2. Stem.** `stem()` trims common English endings, so *prophets*, *praying* and *prayed* match *prophet* and *pray*. It runs until nothing changes: *miracles* → *miracle* → *miracl*. It's applied to the question **and** the keywords the same way, so they meet in the middle.
+
+**3. Score.** Every keyword found in the question adds points:
+
+```svg Specific keywords are worth more than general ones
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 160" font-family="sans-serif"><text x="12" y="20" font-size="11" font-family="monospace">question: " how old is the torah "</text><rect x="10" y="32" width="410" height="28" rx="6" fill="#bbf7d0"/><text x="20" y="50" font-family="monospace" font-size="11">"how old"</text><text x="170" y="50" font-size="11">specific, 2 words</text><text x="410" y="50" text-anchor="end" font-size="11" font-weight="700">3 points</text><rect x="10" y="66" width="410" height="28" rx="6" fill="#bbf7d0"/><text x="20" y="84" font-family="monospace" font-size="11">"age"</text><text x="170" y="84" font-size="11">specific, 1 word</text><text x="410" y="84" text-anchor="end" font-size="11" font-weight="700">2 points</text><rect x="10" y="100" width="410" height="28" rx="6" fill="#fde68a"/><text x="20" y="118" font-family="monospace" font-size="11">"~old", "~when"</text><text x="170" y="118" font-size="11">weak, general</text><text x="410" y="118" text-anchor="end" font-size="11" font-weight="700">1 point in all</text><text x="215" y="150" text-anchor="middle" font-size="11" fill="#475569">longer phrases are more specific, so they are worth more; the highest total wins</text></svg>
+```
+
+A keyword's points are its word count + 1, because longer phrases are more specific. Words marked `~` are **weak** (*when*, *old*, *church*): together they're worth just 1 point, so a general word never outweighs a specific one. `rank()` sorts the topics by score; JavaScript's sort is **stable**, so on a tie the topic listed first wins.
+
+The keywords are prepared **once**, when the page loads (`PREPARED`), not on every question.
+
+### Try it
+
+For now the sand shows the scores. Ask *How old is the Torah?*, *praying*, *Koran and heaven*.
+
+check: html | a question box | /id="question"/
+check: js | normalize() | /function\s+normalize\s*\(/
+check: js | stem() | /function\s+stem\s*\(/
+check: js | weak words are worth 1 | /weak\s*\?\s*1\s*:/
+check: js | rank() scores every topic | /function\s+rank\s*\(/
+
+quiz: Why pad the normalized question with a space at each end?
+- [ ] It looks nicer
+- [x] So includes(" age ") finds the word age but not page or stage
+- [ ] Stemming needs it
+why: Spaces mark word edges, even for the first and last word.
+quiz: Why are weak words like "when" worth only 1 point in total?
+- [ ] They are rare
+- [x] They appear in all kinds of questions, so they shouldn't outweigh a specific word
+- [ ] Stemming changes them
+why: General words only break ties when nothing specific matches.
+
+```html page
+<div class="sky" aria-hidden="true"><div class="sun"></div><div class="dune far"></div><div class="dune near"></div></div>
+<header class="top">
+  <h1>SuperBook</h1>
+  <p class="tagline">Three sacred books of the Abrahamic faiths. Open a book to read it, or ask the sand a question.</p>
+</header>
+<main>
+  <div class="books">
+    <button class="book tanakh" data-book="tanakh">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,14 82,70 18,70"/><polygon points="50,86 18,30 82,30"/></svg>
+      <span class="title">Tanakh</span>
+      <span class="faith">Judaism</span>
+    </button>
+    <button class="book bible" data-book="bible">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><path d="M44 14h12v24h20v12H56v36H44V50H24V38h20z"/></svg>
+      <span class="title">Holy Bible</span>
+      <span class="faith">Christianity</span>
+    </button>
+    <button class="book quran" data-book="quran">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><rect x="27" y="27" width="46" height="46"/><rect x="27" y="27" width="46" height="46" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="9"/></svg>
+      <span class="title">Qur'an</span>
+      <span class="faith">Islam</span>
+    </button>
+  </div>
+  <form id="askForm" class="ask">
+    <label for="question">Ask the sand</label>
+    <div class="row">
+      <input id="question" autocomplete="off" placeholder="Ask anything, e.g. How do the Bible and the Qur'an see Jesus?">
+      <button>Ask</button>
+    </div>
+  </form>
+  <section id="answer" class="answer" aria-live="polite"></section>
+</main>
+<dialog id="reader" class="reader">
+  <header>
+    <div><h2 id="readerTitle"></h2><p id="readerFaith" class="muted"></p></div>
+    <button id="close" class="close" aria-label="Close book">✕</button>
+  </header>
+  <div class="pickers">
+    <label><span id="sectionLabel">Book</span> <select id="section"></select></label>
+    <label id="chapterWrap"><span>Chapter</span> <select id="chapter"></select></label>
+    <label id="originalWrap" class="check"><input type="checkbox" id="original" checked> <span>Original language</span></label>
+  </div>
+  <div id="verses" class="verses"></div>
+  <footer>
+    <button id="prev">← <span>Previous</span></button>
+    <button id="next"><span>Next</span> →</button>
+  </footer>
+</dialog>
+```
+
+```js topics
+// 8 of the 76 topics, copied from the real src/topics.js.
+//   kind: "book" → answers are labeled Tanakh / Bible / Qur'an; "faith" → Judaism / Christianity / Islam
+//   keywords → words and phrases that point to the topic; "~" marks a weak, general word
+const TOPICS = [
+  {"id": "profile", "title": "About the book", "kind": "book", "keywords": ["~what is", "~tell me about", "~describe", "~explain", "~about", "~introduce"], "tanakh": "The Tanakh is the Hebrew Bible, the scripture of Judaism: 24 books in three parts, the Torah (Teaching), Nevi'im (Prophets) and Ketuvim (Writings). It tells of creation, God's covenant with Abraham and the people of Israel, the Exodus, the Law given at Sinai, the kings, the exile to Babylon and the return. It was written mostly in Hebrew over many centuries.", "bible": "The Christian Bible has two parts. The Old Testament contains the Hebrew scriptures (39 books in the Protestant count), and the New Testament (27 books, written in Greek in the 1st century CE) tells of the life, death and resurrection of Jesus and the early church. Eastern Orthodox Bibles have 76 books, Catholic Bibles 73 and Protestant Bibles 66; the difference is in the Old Testament.", "quran": "The Qur'an is the scripture of Islam: 114 surahs (chapters) and 6,236 verses in Arabic. Muslims believe it is the word of God revealed to the Prophet Muhammad through the angel Gabriel between 610 and 632 CE. It calls people to worship one God, retells the stories of earlier prophets and gives guidance for life."},
+  {"id": "differences", "title": "How the books differ", "kind": "book", "keywords": ["~difference", "~different", "~differ", "~compare", "~comparison", "~contrast", "~versus", "~vs", "~distinguish", "~unique", "~similar", "~similarity", "~same"], "shared": "All three worship the God of Abraham and share many figures, such as Adam, Noah, Abraham, Moses and David. They differ in who is speaking, what story they tell, and which revelation they see as final.", "tanakh": "Mostly narrative, law, poetry and prophecy written by people about God, telling one long story of the people of Israel. Written over roughly a thousand years. Judaism does not accept the New Testament or the Qur'an as scripture.", "bible": "Keeps the Hebrew scriptures as the Old Testament and adds the New Testament about Jesus, whom Christians see as the fulfillment of those scriptures. The New Testament was written within about 50 years and includes Gospels, a history (Acts), letters and a prophecy (Revelation).", "quran": "Speaks almost entirely as God addressing Muhammad and humanity, often using \"We.\" It retells earlier prophets' stories briefly, as lessons, instead of in historical order. It affirms the Torah, Psalms and Gospel as earlier revelations but teaches that the Qur'an is the final, preserved one. Revealed over 23 years."},
+  {"id": "age", "title": "How old each book is", "kind": "book", "keywords": ["how old", "how many years", "~old", "oldest", "older", "age", "ancient", "~when", "when was", "when did", "how long ago", "date", "dated", "century", "years ago", "newest", "newer", "first written", "timeline", "which came first"], "tanakh": "The oldest of the three. Jewish tradition dates the giving of the Torah at Sinai to more than 3,000 years ago. Scholars date its oldest parts, such as early poems, to around 1000 BCE or before, with most books written and edited between about 800 and 400 BCE. Daniel was finished around 165 BCE.", "bible": "Its Old Testament is the Tanakh. The New Testament is about 1,900–2,000 years old: Paul's letters came first, from about 50 CE, then the Gospels (about 65–100 CE) and Revelation (about 95 CE). Its 27-book list was first given in full in 367 CE.", "quran": "The newest of the three, about 1,400 years old: revealed from 610 to 632 CE and gathered into one standard text under Caliph Uthman around 650 CE."},
+  {"id": "jesus", "title": "Jesus", "kind": "faith", "keywords": ["jesus", "christ", "isa", "son of god", "crucifixion", "crucified", "cross", "resurrection", "rose from the dead", "virgin birth", "nazareth", "born", "birth", "jesus born", "divine jesus", "jesus die"], "tanakh": "Jesus does not appear in the Tanakh. Judaism generally sees him as a Jewish teacher of the 1st century, not the Messiah and not divine.", "bible": "Jesus is the Son of God and the Messiah, born of the virgin Mary, who taught, healed, died by crucifixion for the sins of the world and rose from the dead.", "quran": "Jesus (Isa) is one of the greatest prophets and the Messiah, born of the virgin Mary, who performed miracles. He is not divine, and the Qur'an (4:157) says he was not killed or crucified; most Muslims believe God raised him up and that he will return."},
+  {"id": "creation", "title": "Creation, Adam and Eve", "kind": "faith", "keywords": ["creation", "created", "create", "adam", "eve", "hawwa", "garden", "eden", "universe", "genesis", "first man", "first woman", "world", "six days", "forbidden fruit", "evolution", "science"], "tanakh": "Genesis opens with God creating the world in six days and resting on the seventh. God forms Adam and Eve and places them in the Garden of Eden until they disobey and are sent out.", "bible": "Christians share the Genesis account; the Gospel of John adds that all things were made through the Word (Jesus). Many Christians believe Adam's disobedience passed on \"original sin.\" Many Christians read Genesis alongside science; others read it more literally.", "quran": "Creation took place in six days (or periods). Adam and his wife live in the Garden, eat from the forbidden tree, repent, and are forgiven, so Islam does not teach original sin. Adam is the first prophet."},
+  {"id": "afterlife", "title": "The afterlife", "kind": "faith", "keywords": ["afterlife", "heaven", "hell", "paradise", "jannah", "jahannam", "die", "death", "olam haba", "soul", "after death", "purgatory", "gehenna", "eternal life"], "tanakh": "The Tanakh says little about it; it speaks of Sheol, the place of the dead. Later Judaism developed belief in Olam Ha-Ba (the World to Come) and the resurrection of the dead, with emphasis on how to live this life.", "bible": "Eternal life with God in heaven for those saved through Jesus, and separation from God in hell. Catholics also believe in purgatory, a final purification before heaven.", "quran": "After the Day of Judgment, people go to Paradise (Jannah), described as gardens with rivers, or Hell (Jahannam), according to their faith and deeds and by God's mercy."},
+  {"id": "worship", "title": "Prayer and worship", "kind": "faith", "keywords": ["pray", "prayer", "worship", "~synagogue", "~church", "~mosque", "service", "communion", "eucharist", "mass", "last supper", "sacrament", "salah", "salat", "how often", "times a day", "direction", "qibla", "kneel", "bow"], "tanakh": "Jews traditionally pray three times a day (morning, afternoon and evening), facing Jerusalem, and gather in synagogues, especially on the Sabbath.", "bible": "Christians gather in churches, usually on Sunday, for worship with Bible readings, prayer, songs and communion. The Lord's Prayer is shared by nearly all Christians.", "quran": "Muslims pray five times a day (salah) facing the Kaaba in Mecca, with set movements of standing, bowing and prostrating, and gather in mosques for Friday prayer (Jumu'ah)."},
+  {"id": "fasting", "title": "Fasting", "kind": "faith", "keywords": ["fast", "fasting", "ramadan", "yom kippur fast", "lent", "not eat", "starve", "sawm"], "tanakh": "The main fast is Yom Kippur, about 25 hours with no food or drink, devoted to prayer and repentance. Tisha B'Av, mourning the Temple's destruction, is another full fast.", "bible": "Jesus fasted 40 days in the wilderness. Many Christians fast or give something up during the 40 days of Lent before Easter; Orthodox Christians keep many fast days through the year.", "quran": "Fasting (sawm) in the month of Ramadan is one of the Five Pillars: no food, drink or marital relations from dawn to sunset for 29–30 days, with exceptions for the sick, travelers and others."},
+];
+```
+
+```js ask
+const BOOK_KEYS = ['tanakh', 'bible', 'quran'];
+
+// One spelling for words people write several ways
+const SPELLINGS = [
+  [/qur['’ʾ]?an|koran|coran/g, 'quran'],
+  [/mohammed|mohammad|muhammed|mohamed/g, 'muhammad'],
+  [/['’ʾʿ]/g, ''],                    // what's → whats
+];
+
+/** Lowercase, no accents or vowel marks, one spelling, only letters, digits and single spaces, padded with spaces. */
+function normalize(text) {
+  let s = String(text).toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  for (const [pattern, replacement] of SPELLINGS) s = s.replace(pattern, replacement);
+  return ` ${s.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()} `;
+}
+
+// Light stemming: enough to match plurals and verb forms ("prophets", "praying" → "prophet", "pray")
+function stemOnce(word) {
+  if (word.length <= 4 || !/^[a-z0-9]+$/.test(word)) return word;
+  if (word.endsWith('ies')) return word.slice(0, -3) + 'y';
+  if (word.endsWith('ing') && word.length > 5) return word.slice(0, -3);
+  if (word.endsWith('ed') && word.length > 5) return word.slice(0, -2);
+  if (word.endsWith('es') && /(ch|sh|x|ss)es$/.test(word)) return word.slice(0, -2);
+  if (word.endsWith('s') && !word.endsWith('ss') && !word.endsWith('us')) return word.slice(0, -1);
+  if (word.endsWith('e')) return word.slice(0, -1);
+  return word;
+}
+function stem(word) {
+  for (let next = stemOnce(word); next !== word; next = stemOnce(word)) word = next;   // miracles → miracle → miracl
+  return word;
+}
+const stemText = (normalized) => ` ${normalized.trim().split(' ').map(stem).join(' ')} `;
+
+// Keywords are prepared once: normalized, stemmed, and worth more the more words they have. Weak ones ("~") are worth 1.
+const PREPARED = TOPICS.map((topic) => ({
+  topic,
+  keywords: topic.keywords.map((k) => {
+    const weak = k.startsWith('~');
+    const phrase = stemText(normalize(weak ? k.slice(1) : k));
+    return { phrase, weak, points: weak ? 1 : phrase.trim().split(' ').length + 1 };
+  }),
+}));
+
+/** Scores every topic. Longer phrases count more, and all the weak words together count 1 point. */
+function rank(question) {
+  const q = stemText(normalize(question));
+  return PREPARED.map(({ topic, keywords }) => {
+    let score = 0, weakHit = 0;
+    for (const k of keywords) {
+      if (!q.includes(k.phrase)) continue;
+      if (k.weak) weakHit = 1;
+      else score += k.points;
+    }
+    return { topic, score: score + weakHit };
+  }).filter((r) => r.score > 0).sort((a, b) => b.score - a.score);     // sort is stable: earlier topics win ties
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------- Reader ----------
+document.querySelectorAll('.book').forEach((el) => el.addEventListener('click', () => openBook(el.dataset.book)));
+$('close').onclick = () => $('reader').close();
+// A click on the dark backdrop lands on the dialog itself: close it
+$('reader').addEventListener('click', (e) => { if (e.target === $('reader')) $('reader').close(); });
+$('section').onchange = (e) => goTo(e.target.value, 1);
+$('chapter').onchange = (e) => goTo(current.section, Number(e.target.value));
+$('prev').onclick = () => step(-1);
+$('next').onclick = () => step(1);
+$('original').onchange = () => goTo(current.section, current.chapter);
+
+// ---------- Ask the sand (for now: which topics the question matches, and their scores) ----------
+$('askForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = $('question').value.trim();
+  if (!q) return;
+  const ranked = rank(q);
+  $('answer').innerHTML = `<h3>Topics for “${esc(q)}”</h3>` + (ranked.length
+    ? `<ol>${ranked.map((r) => `<li>${esc(r.topic.title)}: ${r.score} point${r.score === 1 ? '' : 's'}</li>`).join('')}</ol>`
+    : '<p>No topic matches.</p>');
+});
+```
+
+## Step: Which books, and the answer
+time: 20
+
+*"What does Judaism teach about the afterlife?"* should answer for Judaism only. `findBooks()` looks for words that name a book or its faith:
+
+| Book | Some of its words |
+|---|---|
+| Tanakh | torah, tanakh, jewish, judaism, hebrew bible |
+| Bible | bible, gospel, new testament, christian |
+| Qur'an | quran, islam, muslim |
+
+One trap: *"hebrew bible"* contains *bible*. So after checking the Tanakh's words, those phrases are removed from the question before the Bible's words are checked.
+
+**Building the answer.** `compose(topic, books)` makes the paragraphs:
+
+1. what all three share (`shared`), when two or more books are compared;
+2. one paragraph per book, labeled **Tanakh / Bible / Qur'an** for topics about the books themselves, or **Judaism / Christianity / Islam** for beliefs and practice (the topic's `kind`);
+3. a note, if the topic has one.
+
+The title says which books were compared: *Jesus · Christianity vs Islam*.
+
+**When no topic matches.** *"Tell me about the Torah"* only matches weak words, so the **profile** topic wins; if the question names a book, it describes that book (or, naming two, how they differ). Anything else gets a friendly **fallback** suggesting questions the sand can answer. A fallback is better than the closest wrong answer.
+
+These rules are the same as the real app's: for every sample question in this guide, `answer()` gives the same topic and books as SuperBook itself.
+
+### Try it
+
+*How do the Bible and the Qur'an see Jesus?* · *Tell me about the Torah* · *Tell me about the Bible and the Quran* · *When was the Hebrew Bible written?* · *xyzzy*
+
+check: js | which books a question names | /function\s+findBooks\s*\(/
+check: js | "hebrew bible" isn't the Bible | /hebrew \(bible\|scriptures\)/
+check: js | the paragraphs for some or all books | /function\s+compose\s*\(/
+check: js | answer() puts it together | /function\s+answer\s*\(/
+
+quiz: Why remove "hebrew bible" from the question after checking the Tanakh's words?
+- [ ] It's too long
+- [x] Otherwise the word "bible" inside it would also select the Christian Bible
+- [ ] The Tanakh has no other words
+why: Check the longer phrase first, then take it out.
+quiz: "Tell me about the Torah" matches only weak words. What does the sand answer?
+- [ ] The fallback
+- [x] The profile of the Tanakh, because the question names a book
+- [ ] Every topic
+why: A named book with no topic means "describe this book".
+
+```html page
+<div class="sky" aria-hidden="true"><div class="sun"></div><div class="dune far"></div><div class="dune near"></div></div>
+<header class="top">
+  <h1>SuperBook</h1>
+  <p class="tagline">Three sacred books of the Abrahamic faiths. Open a book to read it, or ask the sand a question.</p>
+</header>
+<main>
+  <div class="books">
+    <button class="book tanakh" data-book="tanakh">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,14 82,70 18,70"/><polygon points="50,86 18,30 82,30"/></svg>
+      <span class="title">Tanakh</span>
+      <span class="faith">Judaism</span>
+    </button>
+    <button class="book bible" data-book="bible">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><path d="M44 14h12v24h20v12H56v36H44V50H24V38h20z"/></svg>
+      <span class="title">Holy Bible</span>
+      <span class="faith">Christianity</span>
+    </button>
+    <button class="book quran" data-book="quran">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><rect x="27" y="27" width="46" height="46"/><rect x="27" y="27" width="46" height="46" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="9"/></svg>
+      <span class="title">Qur'an</span>
+      <span class="faith">Islam</span>
+    </button>
+  </div>
+  <form id="askForm" class="ask">
+    <label for="question">Ask the sand</label>
+    <div class="row">
+      <input id="question" autocomplete="off" placeholder="Ask anything, e.g. How do the Bible and the Qur'an see Jesus?">
+      <button>Ask</button>
+    </div>
+  </form>
+  <section id="answer" class="answer" aria-live="polite"></section>
+</main>
+<dialog id="reader" class="reader">
+  <header>
+    <div><h2 id="readerTitle"></h2><p id="readerFaith" class="muted"></p></div>
+    <button id="close" class="close" aria-label="Close book">✕</button>
+  </header>
+  <div class="pickers">
+    <label><span id="sectionLabel">Book</span> <select id="section"></select></label>
+    <label id="chapterWrap"><span>Chapter</span> <select id="chapter"></select></label>
+    <label id="originalWrap" class="check"><input type="checkbox" id="original" checked> <span>Original language</span></label>
+  </div>
+  <div id="verses" class="verses"></div>
+  <footer>
+    <button id="prev">← <span>Previous</span></button>
+    <button id="next"><span>Next</span> →</button>
+  </footer>
+</dialog>
+```
+
+```js ask
+const BOOK_KEYS = ['tanakh', 'bible', 'quran'];
+
+// One spelling for words people write several ways
+const SPELLINGS = [
+  [/qur['’ʾ]?an|koran|coran/g, 'quran'],
+  [/mohammed|mohammad|muhammed|mohamed/g, 'muhammad'],
+  [/['’ʾʿ]/g, ''],                    // what's → whats
+];
+
+/** Lowercase, no accents or vowel marks, one spelling, only letters, digits and single spaces, padded with spaces. */
+function normalize(text) {
+  let s = String(text).toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  for (const [pattern, replacement] of SPELLINGS) s = s.replace(pattern, replacement);
+  return ` ${s.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()} `;
+}
+
+// Light stemming: enough to match plurals and verb forms ("prophets", "praying" → "prophet", "pray")
+function stemOnce(word) {
+  if (word.length <= 4 || !/^[a-z0-9]+$/.test(word)) return word;
+  if (word.endsWith('ies')) return word.slice(0, -3) + 'y';
+  if (word.endsWith('ing') && word.length > 5) return word.slice(0, -3);
+  if (word.endsWith('ed') && word.length > 5) return word.slice(0, -2);
+  if (word.endsWith('es') && /(ch|sh|x|ss)es$/.test(word)) return word.slice(0, -2);
+  if (word.endsWith('s') && !word.endsWith('ss') && !word.endsWith('us')) return word.slice(0, -1);
+  if (word.endsWith('e')) return word.slice(0, -1);
+  return word;
+}
+function stem(word) {
+  for (let next = stemOnce(word); next !== word; next = stemOnce(word)) word = next;   // miracles → miracle → miracl
+  return word;
+}
+const stemText = (normalized) => ` ${normalized.trim().split(' ').map(stem).join(' ')} `;
+
+// Keywords are prepared once: normalized, stemmed, and worth more the more words they have. Weak ones ("~") are worth 1.
+const PREPARED = TOPICS.map((topic) => ({
+  topic,
+  keywords: topic.keywords.map((k) => {
+    const weak = k.startsWith('~');
+    const phrase = stemText(normalize(weak ? k.slice(1) : k));
+    return { phrase, weak, points: weak ? 1 : phrase.trim().split(' ').length + 1 };
+  }),
+}));
+
+/** Scores every topic. Longer phrases count more, and all the weak words together count 1 point. */
+function rank(question) {
+  const q = stemText(normalize(question));
+  return PREPARED.map(({ topic, keywords }) => {
+    let score = 0, weakHit = 0;
+    for (const k of keywords) {
+      if (!q.includes(k.phrase)) continue;
+      if (k.weak) weakHit = 1;
+      else score += k.points;
+    }
+    return { topic, score: score + weakHit };
+  }).filter((r) => r.score > 0).sort((a, b) => b.score - a.score);     // sort is stable: earlier topics win ties
+}
+
+// Words that name a book or its faith. "hebrew bible" is removed before looking for "bible".
+const BOOK_WORDS = {
+  tanakh: ['tanakh', 'tanach', 'torah', 'hebrew bible', 'hebrew scriptures', 'jewish', 'jews', 'jew', 'judaism', 'talmud'],
+  bible: ['bible', 'new testament', 'old testament', 'gospel', 'gospels', 'christian', 'christians', 'christianity'],
+  quran: ['quran', 'islam', 'islamic', 'muslim', 'muslims'],
+};
+
+function findBooks(question) {
+  let q = normalize(question);
+  const found = [];
+  for (const book of BOOK_KEYS) {
+    if (BOOK_WORDS[book].some((w) => q.includes(` ${w} `))) found.push(book);
+    if (book === 'tanakh') {
+      q = q.replace(/ hebrew (bible|scriptures) /g, ' ');
+    }
+  }
+  return found;
+}
+
+const LABELS = {
+  book: { tanakh: 'Tanakh', bible: 'Bible', quran: "Qur'an" },
+  faith: { tanakh: 'Judaism', bible: 'Christianity', quran: 'Islam' },
+};
+const label = (kind, book) => LABELS[kind][book];
+
+/** The paragraphs for a topic, for some or all of the books */
+function compose(topic, books = BOOK_KEYS) {
+  const kind = topic.kind ?? 'faith';
+  const text = (field) => topic[field];
+  const answer = [];
+  if (topic.shared && books.length > 1) answer.push(text('shared'));
+  for (const book of books) answer.push(`${label(kind, book)}: ${text(book)}`);
+  if (topic.note) answer.push(text('note'));
+  const names = books.map((b) => label(kind, b));
+  const title = books.length === BOOK_KEYS.length ? text('title')
+    : books.length === 1 ? `${text('title')} · ${names[0]}`
+    : `${text('title')} · ${names.join(` ${'vs'} `)}`;
+  return { title, answer };
+}
+
+const FALLBACK = {
+  title: 'Ask me about…',
+  answer: ["The sand doesn't know that one yet.", 'Try a question about how old the books are, Jesus, creation, the afterlife, prayer or fasting. Name one or two books to compare just those.'],
+};
+const fallback = () => FALLBACK;
+
+const PROFILE = TOPICS.find((x) => x.id === 'profile');
+const DIFFERENCES = TOPICS.find((x) => x.id === 'differences');
+
+function answer(question) {
+  if (normalize(question).trim().length < 2) return fallback();
+  const named = findBooks(question);
+  const books = named.length ? named : BOOK_KEYS;
+  const [best] = rank(question);
+  // "Tell me about the Torah", "What is Islam?": no other topic, so describe the book (or how the named ones differ)
+  if ((!best || best.topic.id === 'profile') && named.length) {
+    return named.length > 1 ? compose(DIFFERENCES, books) : compose(PROFILE, books);
+  }
+  if (!best || best.topic.id === 'profile') return fallback();
+  return compose(best.topic, books);
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------- Reader ----------
+document.querySelectorAll('.book').forEach((el) => el.addEventListener('click', () => openBook(el.dataset.book)));
+$('close').onclick = () => $('reader').close();
+// A click on the dark backdrop lands on the dialog itself: close it
+$('reader').addEventListener('click', (e) => { if (e.target === $('reader')) $('reader').close(); });
+$('section').onchange = (e) => goTo(e.target.value, 1);
+$('chapter').onchange = (e) => goTo(current.section, Number(e.target.value));
+$('prev').onclick = () => step(-1);
+$('next').onclick = () => step(1);
+$('original').onchange = () => goTo(current.section, current.chapter);
+
+// ---------- Ask the sand ----------
+$('askForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = $('question').value.trim();
+  if (!q) return;
+  const topic = answer(q);
+  $('answer').innerHTML = `<h3>${esc(topic.title)}</h3>` + topic.answer.map((p) => `<p>${esc(p)}</p>`).join('');
+});
+```
+
 ## Finish
 
 ### What you learned
