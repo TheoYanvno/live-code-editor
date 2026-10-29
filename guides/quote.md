@@ -1713,6 +1713,57 @@ afterAuthChange();
 setMode('quote');
 ```
 
+## Session: How the real project is built
+
+## Step: The Node server, SQLite and the tests
+time: 10
+kind: read
+
+You've now built the same app as my [Quote & Joke Generator](https://theoyanvno.github.io/quote-and-joke-generator/). The real project runs the same rules in two places:
+
+| File | What it does |
+|---|---|
+| `src/data.js`, `src/picker.js` | the quotes and jokes, and the pure picking functions |
+| `src/accounts/service.js` | the account rules you wrote |
+| `src/accounts/routes.js` | `handleApi()`, shared by the server and the demo |
+| `server/server.js` | a `node:http` server: real requests, cookies, security headers |
+| `server/sqlite-store.js`, `sql/schema.sql` | SQLite storage with `node:sqlite` |
+| `server/crypto.js` | scrypt password hashing and tokens |
+| `src/accounts/browser-store.js` | IndexedDB storage and PBKDF2 for the live demo |
+
+**scrypt on the server.** Node has scrypt built in. It's slow like PBKDF2 and also needs about 16 MB of memory per guess, which makes guessing on graphics cards far more expensive:
+
+```js
+export const passwords = {
+  /** A new random salt for every password, so two people with the same password get different hashes. */
+  async hash(password) {
+    const salt = randomBytes(16);
+    const key = await scryptAsync(String(password).normalize('NFKC'), salt, N, R, P);
+    return `scrypt$${N}$${R}$${P}$${salt.toString('base64')}$${key.toString('base64')}`;
+  },
+```
+
+**HttpOnly cookies.** On the server, the session token goes in a cookie marked **HttpOnly** (page scripts can't read it, so injected code can't steal it) and **SameSite=Lax** (other sites can't send it along). That's something the browser-only demo can't do, which is why the demo is labeled as one.
+
+**The database** enforces rules too, so even a bug can't break them:
+
+```sql
+CREATE TABLE IF NOT EXISTS favorites (
+  id         INTEGER PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       TEXT    NOT NULL CHECK (kind IN ('quote', 'joke')),
+  text       TEXT    NOT NULL CHECK (length(text) BETWEEN 1 AND 1000),
+  created_at INTEGER NOT NULL,
+  UNIQUE (user_id, text)                    -- saving the same item twice keeps one copy
+);
+```
+
+`ON DELETE CASCADE` removes a user's favorites and sessions with the account, and every query uses `?` placeholders, so typed text can never become SQL.
+
+**More protection on the server:** each IP address gets at most 30 log-in and sign-up requests per 10 minutes, changes must be sent as JSON, requests from another site's `Origin` are refused, and only the app's own files are served (the database and server code return 404).
+
+**Tests.** 27 tests run with `npm test`: the picker, the account rules against a real in-memory SQLite database, the HTTP API through a running server, and the browser demo with Web Crypto.
+
 ## Finish
 
 ### What you learned
