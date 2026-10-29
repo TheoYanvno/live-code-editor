@@ -1803,6 +1803,49 @@ function updateProgress() {
 addEventListener('scroll', updateProgress, { passive: true });
 ```
 
+## Session: How the real project is built
+
+## Step: The Python static site generator
+time: 10
+kind: read
+
+You've built the same blog engine that runs [Bonfire Notes](https://theoyanvno.github.io/bonfire-notes/), but in the browser. The real one runs **once, before publishing**: a Python script reads the posts and writes every page as a plain HTML file into `docs/`, which GitHub Pages serves. Visitors download finished pages, with no Markdown work in their browser at all.
+
+| File | What it does |
+|---|---|
+| `build.py` | reads `posts/*.md`, parses front matter, converts Markdown, renders templates, writes `docs/` |
+| `templates/` | Jinja templates: a shared layout, the post list, the post page, About |
+| `static/` | the stylesheet and `embers.js` (the same embers and progress bar you wrote) |
+| `posts/` | 60 Markdown posts: 10 class builds, 20 walkthroughs, 25 boss guides, the guides hub and more |
+| `tests/test_build.py` | front matter, slugs, reading time, a full build, redirects and links between posts |
+
+The front matter parser in Python is the same idea you wrote, with the same rule about the first colon:
+
+```python
+def parse_front_matter(raw: str) -> tuple[dict, str]:
+    """Reads the '---' block at the top of a post into a dict."""
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)$", raw, re.S)
+    if not match:
+        raise ValueError("Post is missing its --- front matter block")
+    meta = {}
+    for line in match.group(1).splitlines():
+        if ":" in line:
+            key, value = line.split(":", 1)
+            meta[key.strip()] = value.strip()
+```
+
+**Templates instead of template literals.** Jinja templates are HTML files with `{{ }}` for values and `{% %}` for loops. They **escape values automatically**, which is what `esc()` did for you by hand:
+
+```html
+<article class="card">
+  <p class="meta"><time datetime="{{ p.date.isoformat() }}">{{ p.date.strftime('%B %-d, %Y') }}</time> · {{ p.reading_minutes }} min read</p>
+  <h2><a href="{{ root }}/posts/{{ p.slug }}.html">{{ p.title }}</a></h2>
+```
+
+**Redirect pages.** A static site has no server to send "moved" responses, so for each old address the build writes a tiny page with `<meta http-equiv="refresh" content="0; url=knight-class-build.html">`, which forwards the browser at once, plus a canonical link telling search engines where the post lives now.
+
+**Tests.** `python -m unittest` builds the whole site into a temporary folder and checks it: every page is written, headings have anchors, every redirect leads to a real post, and every link between posts points to a page that exists, so a typo in a link fails the build instead of reaching readers.
+
 ## Finish
 
 ### What you learned
