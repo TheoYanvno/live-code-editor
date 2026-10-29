@@ -19,7 +19,7 @@ export const GUIDES = [
     summary: 'SQL tables, joins and search over 214 characters, MCU appearances, relationships, and cards with a photo slot.', load: () => import('./marvel.js') },
   { id: 'chess', title: 'Chess Coach', emoji: '♟️', level: 'Advanced', time: 'about 3.5 hours', steps: 13, available: true,
     summary: 'Board state, every legal move, a computer opponent with alpha-beta search, and the coach that grades and explains every move.', load: () => import('./chess.js') },
-  { id: 'superbook', title: 'SuperBook', emoji: '📖', level: 'Advanced', time: 'about 3 hours', steps: 2, available: true,
+  { id: 'superbook', title: 'SuperBook', emoji: '📖', level: 'Advanced', time: 'about 3 hours', steps: 4, available: true,
     summary: 'Reading from web APIs, matching questions to answers, translations, and writing in sand on a canvas.', load: () => import('./superbook.js') },
   { id: 'gotham', title: 'Gotham Hospital System', emoji: '🏥', level: 'Advanced', time: 'about 4 hours', steps: 0, available: false,
     summary: 'Provider schedules, booking rules, patient charts, sign-in where the password picks your role, and the SQL behind them.', load: () => import('./gotham.js') },

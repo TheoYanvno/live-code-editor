@@ -389,6 +389,481 @@ $('prev').onclick = () => step(-1);
 $('next').onclick = () => step(1);
 ```
 
+## Session: Reading from the web
+
+## Step: Fetching a chapter
+time: 20
+
+SuperBook doesn't store any scripture. Each chapter is **loaded when you open it**, from free public APIs, using public-domain translations. The Bible comes from [bible-api.com](https://bible-api.com), in the World English Bible:
+
+```text
+https://bible-api.com/Genesis%201?translation=web
+→ { "verses": [ { "verse": 1, "text": "In the beginning, God created the heavens and the earth.\n" }, … ] }
+```
+
+**`async` and `await`.** `fetch()` returns a *promise*: a value that arrives later. Inside an `async` function, `await` pauses that function until the value arrives, without freezing the page, so the code reads top to bottom like ordinary code.
+
+**Errors are normal on the web.** A request can fail (no connection) or come back with an error status. `fetch` only throws for the first kind, so `fetchJson()` checks `res.ok` and throws a readable message itself, with a special one for **429 Too Many Requests**, which free APIs send when you click too fast. `goTo()` wraps everything in `try … catch` and shows the message in the reader instead of breaking.
+
+**The reader may move on.** Click Next three times quickly and three requests are in flight. If the first one is slow, it could arrive *last* and overwrite the chapter you're actually on. So before drawing, `goTo()` checks the chapter it loaded is still the current one:
+
+```js
+if (id !== `${current.key}|${current.section}|${current.chapter}`) return;   // the reader moved on while this loaded
+```
+
+Each verse is shown with its number in a `<sup>`, and its text goes through `esc()`: it comes from someone else's server, so it's never put into the page as HTML.
+
+### Try it
+
+Open the Bible and page through. (The Tanakh and the Qur'an come in the next step.)
+
+check: js | one function for every request | /async\s+function\s+fetchJson\s*\(/
+check: js | a readable error for "too many requests" | /res\.status\s*===\s*429/
+check: js | the Bible from bible-api.com | /bible-api\.com/
+check: js | ignore a chapter the reader has left | /if\s*\(\s*id\s*!==\s*`/
+
+quiz: fetch() gets a 404 response. What happens without the res.ok check?
+- [ ] fetch throws an error
+- [x] Nothing throws: the code carries on with an error page as if it were the chapter
+- [ ] The browser retries
+why: fetch only rejects when the request itself fails; checking res.ok is your job.
+quiz: Why compare the loaded id with the current chapter before drawing?
+- [ ] To save memory
+- [x] A slow, older request could finish last and overwrite the chapter the reader is actually on
+- [ ] Because ids change after loading
+why: Responses don't always come back in the order they were asked for.
+
+```js books
+// Tables of contents, copied from the real src/books.js.
+// Tanakh: [name, chapters] in the Jewish order (Torah, Prophets, Writings). Names match Sefaria's API.
+const TANAKH = [
+  ["Genesis", 50], ["Exodus", 40], ["Leviticus", 27], ["Numbers", 36], ["Deuteronomy", 34], ["Joshua", 24],
+  ["Judges", 21], ["I Samuel", 31], ["II Samuel", 24], ["I Kings", 22], ["II Kings", 25], ["Isaiah", 66],
+  ["Jeremiah", 52], ["Ezekiel", 48], ["Hosea", 14], ["Joel", 4], ["Amos", 9], ["Obadiah", 1],
+  ["Jonah", 4], ["Micah", 7], ["Nahum", 3], ["Habakkuk", 3], ["Zephaniah", 3], ["Haggai", 2],
+  ["Zechariah", 14], ["Malachi", 3], ["Psalms", 150], ["Proverbs", 31], ["Job", 42], ["Song of Songs", 8],
+  ["Ruth", 4], ["Lamentations", 5], ["Ecclesiastes", 12], ["Esther", 10], ["Daniel", 12], ["Ezra", 10],
+  ["Nehemiah", 13], ["I Chronicles", 29], ["II Chronicles", 36],
+];
+
+// Eastern Orthodox Bible: [id for bible-api.com, chapters, label]. The id is what the API understands; the label is what readers see.
+const BIBLE = [
+  ["Genesis", 50], ["Exodus", 40], ["Leviticus", 27], ["Numbers", 36], ["Deuteronomy", 34],
+  ["Joshua", 24], ["Judges", 21], ["Ruth", 4], ["1 Samuel", 31, "1 Kingdoms (1 Samuel)"], ["2 Samuel", 24, "2 Kingdoms (2 Samuel)"],
+  ["1 Kings", 22, "3 Kingdoms (1 Kings)"], ["2 Kings", 25, "4 Kingdoms (2 Kings)"], ["1 Chronicles", 29], ["2 Chronicles", 36], ["Prayer of Manasses", 1, "Prayer of Manasseh"],
+  ["1 Esdras", 9], ["Ezra", 10, "2 Esdras (Ezra)"], ["Nehemiah", 13], ["Tobit", 14], ["Judith", 16],
+  ["Esther", 10], ["1 Maccabees", 16], ["2 Maccabees", 15], ["3 Maccabees", 7], ["Psalms", 150],
+  ["Job", 42], ["Proverbs", 31], ["Ecclesiastes", 12], ["Song of Solomon", 8, "Song of Songs"], ["Wisdom", 19, "Wisdom of Solomon"],
+  ["Sirach", 51], ["Hosea", 14], ["Amos", 9], ["Micah", 7], ["Joel", 3],
+  ["Obadiah", 1], ["Jonah", 4], ["Nahum", 3], ["Habakkuk", 3], ["Zephaniah", 3],
+  ["Haggai", 2], ["Zechariah", 14], ["Malachi", 4], ["Isaiah", 66], ["Jeremiah", 52],
+  ["Baruch", 5], ["Lamentations", 5], ["Ezekiel", 48], ["Daniel", 12], ["sus", 1, "Susanna"],
+  ["Bel and the Dragon", 1], ["4 Maccabees", 18, "4 Maccabees (appendix)"], ["Matthew", 28], ["Mark", 16], ["Luke", 24],
+  ["John", 21], ["Acts", 28], ["Romans", 16], ["1 Corinthians", 16], ["2 Corinthians", 13],
+  ["Galatians", 6], ["Ephesians", 6], ["Philippians", 4], ["Colossians", 4], ["1 Thessalonians", 5],
+  ["2 Thessalonians", 3], ["1 Timothy", 6], ["2 Timothy", 4], ["Titus", 3], ["Philemon", 1],
+  ["Hebrews", 13], ["James", 5], ["1 Peter", 5], ["2 Peter", 3], ["1 John", 5],
+  ["2 John", 1], ["3 John", 1], ["Jude", 1], ["Revelation", 22],
+];
+
+// Every API call goes through here, so a failed request always becomes a readable error
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(res.status === 429 ? 'Reading too fast: wait a few seconds and try again.' : 'Could not load this page.');
+  return res.json();
+}
+
+const BOOKS = {
+  tanakh: {
+    sectionWord: 'Book',
+    sections: TANAKH.map(([name, chapters]) => ({ id: name, label: name, chapters })),
+  },
+  bible: {
+    sectionWord: 'Book',
+    sections: BIBLE.map(([id, chapters, label = id]) => ({ id, label, chapters })),
+    async load(section, chapter) {
+      const data = await fetchJson(`https://bible-api.com/${encodeURIComponent(`${section} ${chapter}`)}?translation=web`);
+      return data.verses.map((x) => ({ n: x.verse, text: x.text.replace(/\s+/g, ' ').trim() }));
+    },
+  },
+  quran: {
+    sectionWord: 'Surah',
+    sections: Array.from({ length: 114 }, (_, i) => ({ id: i + 1, label: `Surah ${i + 1}`, chapters: 1 })),
+  },
+};
+```
+
+```js reader
+const INFO = {
+  tanakh: { title: 'Tanakh', faith: 'Judaism' },
+  bible: { title: 'Holy Bible', faith: 'Christianity' },
+  quran: { title: "Qur'an", faith: 'Islam' },
+};
+let current = { key: null, section: null, chapter: 1 };
+
+function openBook(key) {
+  const book = BOOKS[key];
+  current = { key, section: null, chapter: 1 };
+  $('reader').className = `reader ${key}`;
+  readerLabels();
+  $('reader').showModal();
+  fillSections();
+  goTo(book.sections[0].id, 1);
+}
+
+// The title, faith and picker label (in the current language from step 9)
+function readerLabels() {
+  const key = current.key;
+  if (!key) return;
+  const book = BOOKS[key];
+  $('readerTitle').textContent = INFO[key].title;
+  $('readerFaith').textContent = INFO[key].faith;
+  $('sectionLabel').textContent = book.sectionWord;
+}
+
+function fillSections() {
+  const book = BOOKS[current.key];
+  $('section').innerHTML = book.sections.map((s) => `<option value="${esc(s.id)}">${esc(s.label)}</option>`).join('');
+}
+
+function fillChapters() {
+  const book = BOOKS[current.key];
+  const sec = book.sections.find((s) => String(s.id) === String(current.section));
+  $('chapterWrap').hidden = current.key === 'quran';          // a surah is read whole
+  $('chapter').innerHTML = Array.from({ length: sec.chapters }, (_, i) => `<option>${i + 1}</option>`).join('');
+  $('chapter').value = current.chapter;
+}
+
+async function goTo(section, chapter) {
+  const book = BOOKS[current.key];
+  current.section = section;
+  current.chapter = chapter;
+  $('section').value = section;
+  fillChapters();
+  if (!book.load) {
+    $('verses').innerHTML = '<p class="loading">This book\'s text arrives in the next step.</p>';
+    return;
+  }
+  const id = `${current.key}|${section}|${chapter}`;
+  $('verses').innerHTML = `<p class="loading">${'Turning the page…'}</p>`;
+  try {
+    const verses = await book.load(section, chapter);
+    if (id !== `${current.key}|${current.section}|${current.chapter}`) return;   // the reader moved on while this loaded
+    $('verses').innerHTML = verses.map((x) => `<p class="verse"><sup>${x.n}</sup> ${esc(x.text)}</p>`).join('');
+    $('verses').scrollTop = 0;
+  } catch (err) {
+    if (id !== `${current.key}|${current.section}|${current.chapter}`) return;
+    $('verses').innerHTML = `<p class="loading">${esc(err.message)} ${'Check your internet connection and try again.'}</p>`;
+  }
+}
+
+// Previous / next: past the last chapter of a book, go on to the next book (and back)
+function step(dir) {
+  const book = BOOKS[current.key];
+  const i = book.sections.findIndex((s) => String(s.id) === String(current.section));
+  let chapter = current.chapter + dir;
+  let index = i;
+  if (chapter < 1) {
+    index = i - 1;
+    if (index < 0) return;                       // already at the very beginning
+    chapter = book.sections[index].chapters;     // the last chapter of the book before
+  } else if (chapter > book.sections[i].chapters) {
+    index = i + 1;
+    if (index >= book.sections.length) return;  // already at the very end
+    chapter = 1;
+  }
+  goTo(book.sections[index].id, chapter);
+}
+```
+
+## Step: Three APIs, one shape
+time: 20
+
+The other two books come from other services, and every API answers in its own format:
+
+```svg Each load() turns its API's answer into the same shape
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 170" font-family="sans-serif" font-size="11"><rect x="10" y="10" width="230" height="36" rx="6" fill="#dbeafe"/><text x="18" y="25" font-weight="700">Sefaria (Tanakh)</text><text x="18" y="39" font-family="monospace" font-size="9">versions[] of text arrays, light HTML</text><line x1="240" y1="28" x2="290" y2="76" stroke="#475569" stroke-width="2"/><rect x="10" y="54" width="230" height="36" rx="6" fill="#fee2e2"/><text x="18" y="69" font-weight="700">bible-api.com (Bible)</text><text x="18" y="83" font-family="monospace" font-size="9">verses[]: { verse, text }</text><line x1="240" y1="72" x2="290" y2="76" stroke="#475569" stroke-width="2"/><rect x="10" y="98" width="230" height="36" rx="6" fill="#dcfce7"/><text x="18" y="113" font-weight="700">alquran.cloud (Qur'an)</text><text x="18" y="127" font-family="monospace" font-size="9">data[]: two editions of ayahs[]</text><line x1="240" y1="116" x2="290" y2="76" stroke="#475569" stroke-width="2"/><rect x="290" y="52" width="130" height="48" rx="6" fill="#0f172a"/><text x="298" y="70" fill="#fde68a" font-family="monospace" font-size="10">[{ n, text,</text><text x="298" y="86" fill="#fde68a" font-family="monospace" font-size="10">   original, dir }]</text><text x="215" y="160" text-anchor="middle" font-size="11" fill="#475569">each load() turns its API's answer into one shape, so the reader draws them all the same way</text></svg>
+```
+
+| Book | API | Notes |
+|---|---|---|
+| Tanakh | [Sefaria](https://www.sefaria.org) | asks for two versions in one request: the JPS 1917 English and the Hebrew; the text has light HTML (footnotes, `<big>`) that `clean()` strips |
+| Qur'an | [alquran.cloud](https://alquran.cloud) | one request returns two editions: the Arabic (Uthmani script) and Pickthall's English; the surah list is its own request |
+
+Every `load()` returns **the same shape**, `[{ n, text, original, dir }]`, so the reader has one way to draw verses whichever book they came from. Adding a fourth book would mean writing one more `load()`, not changing the reader. The original Hebrew or Arabic is shown under each verse with `dir="rtl"` and a `lang` attribute, so it runs right to left and screen readers pronounce it correctly; a checkbox turns it off.
+
+**`clean()`** removes footnotes first (they'd otherwise leave their text in the verse), turns `<br>` into spaces, drops every other tag, and squeezes repeated spaces.
+
+**A cache.** Paging back to a chapter you've read shouldn't download it again. `cache` is a `Map` from a chapter id like `bible|John|3` to the **promise** of its verses. Storing the promise, not the result, means two quick clicks on the same chapter share one request. If the request fails, `cache.delete(id)` forgets it, so trying again really tries again.
+
+**Loading the surah list.** The Qur'an's `sections` start as `null`; the first time the book is opened, `loadSections()` fills them from the API, with names like *1. Al-Faatiha (The Opening)*.
+
+### Try it
+
+Open all three books. Turn the original language off and on. Close and reopen a book: no new request.
+
+check: js | the Tanakh from Sefaria | /sefaria\.org\/api\/v3\/texts/
+check: js | strip Sefaria's HTML | /function\s+clean\s*\(/
+check: js | a cache | /new\s+Map\(\)/
+check: js | a failed load isn't kept | /cache\.delete\(\s*id\s*\)/
+check: js | two Qur'an editions in one request | /editions\/quran-uthmani,en\.pickthall/
+
+quiz: Why does every load() return [{ n, text, original, dir }] instead of the API's own data?
+- [ ] The APIs require it
+- [x] The reader then draws verses one way for every book, and a new source only needs a new load()
+- [ ] It makes the requests smaller
+why: Convert at the edge; keep the inside of the app simple.
+quiz: Why does the cache store the promise rather than waiting and storing the verses?
+- [ ] Promises are smaller
+- [x] A second click before the first request finishes reuses it instead of starting another
+- [ ] Maps can only hold promises
+why: The promise stands for the request, finished or not.
+
+```html page
+<div class="sky" aria-hidden="true"><div class="sun"></div><div class="dune far"></div><div class="dune near"></div></div>
+<header class="top">
+  <h1>SuperBook</h1>
+  <p class="tagline">Three sacred books of the Abrahamic faiths. Open a book to read it, or ask the sand a question.</p>
+</header>
+<main>
+  <div class="books">
+    <button class="book tanakh" data-book="tanakh">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,14 82,70 18,70"/><polygon points="50,86 18,30 82,30"/></svg>
+      <span class="title">Tanakh</span>
+      <span class="faith">Judaism</span>
+    </button>
+    <button class="book bible" data-book="bible">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><path d="M44 14h12v24h20v12H56v36H44V50H24V38h20z"/></svg>
+      <span class="title">Holy Bible</span>
+      <span class="faith">Christianity</span>
+    </button>
+    <button class="book quran" data-book="quran">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><rect x="27" y="27" width="46" height="46"/><rect x="27" y="27" width="46" height="46" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="9"/></svg>
+      <span class="title">Qur'an</span>
+      <span class="faith">Islam</span>
+    </button>
+  </div>
+</main>
+<dialog id="reader" class="reader">
+  <header>
+    <div><h2 id="readerTitle"></h2><p id="readerFaith" class="muted"></p></div>
+    <button id="close" class="close" aria-label="Close book">✕</button>
+  </header>
+  <div class="pickers">
+    <label><span id="sectionLabel">Book</span> <select id="section"></select></label>
+    <label id="chapterWrap"><span>Chapter</span> <select id="chapter"></select></label>
+    <label id="originalWrap" class="check"><input type="checkbox" id="original" checked> <span>Original language</span></label>
+  </div>
+  <div id="verses" class="verses"></div>
+  <footer>
+    <button id="prev">← <span>Previous</span></button>
+    <button id="next"><span>Next</span> →</button>
+  </footer>
+</dialog>
+```
+
+```js books
+// Tables of contents, copied from the real src/books.js.
+// Tanakh: [name, chapters] in the Jewish order (Torah, Prophets, Writings). Names match Sefaria's API.
+const TANAKH = [
+  ["Genesis", 50], ["Exodus", 40], ["Leviticus", 27], ["Numbers", 36], ["Deuteronomy", 34], ["Joshua", 24],
+  ["Judges", 21], ["I Samuel", 31], ["II Samuel", 24], ["I Kings", 22], ["II Kings", 25], ["Isaiah", 66],
+  ["Jeremiah", 52], ["Ezekiel", 48], ["Hosea", 14], ["Joel", 4], ["Amos", 9], ["Obadiah", 1],
+  ["Jonah", 4], ["Micah", 7], ["Nahum", 3], ["Habakkuk", 3], ["Zephaniah", 3], ["Haggai", 2],
+  ["Zechariah", 14], ["Malachi", 3], ["Psalms", 150], ["Proverbs", 31], ["Job", 42], ["Song of Songs", 8],
+  ["Ruth", 4], ["Lamentations", 5], ["Ecclesiastes", 12], ["Esther", 10], ["Daniel", 12], ["Ezra", 10],
+  ["Nehemiah", 13], ["I Chronicles", 29], ["II Chronicles", 36],
+];
+
+// Eastern Orthodox Bible: [id for bible-api.com, chapters, label]. The id is what the API understands; the label is what readers see.
+const BIBLE = [
+  ["Genesis", 50], ["Exodus", 40], ["Leviticus", 27], ["Numbers", 36], ["Deuteronomy", 34],
+  ["Joshua", 24], ["Judges", 21], ["Ruth", 4], ["1 Samuel", 31, "1 Kingdoms (1 Samuel)"], ["2 Samuel", 24, "2 Kingdoms (2 Samuel)"],
+  ["1 Kings", 22, "3 Kingdoms (1 Kings)"], ["2 Kings", 25, "4 Kingdoms (2 Kings)"], ["1 Chronicles", 29], ["2 Chronicles", 36], ["Prayer of Manasses", 1, "Prayer of Manasseh"],
+  ["1 Esdras", 9], ["Ezra", 10, "2 Esdras (Ezra)"], ["Nehemiah", 13], ["Tobit", 14], ["Judith", 16],
+  ["Esther", 10], ["1 Maccabees", 16], ["2 Maccabees", 15], ["3 Maccabees", 7], ["Psalms", 150],
+  ["Job", 42], ["Proverbs", 31], ["Ecclesiastes", 12], ["Song of Solomon", 8, "Song of Songs"], ["Wisdom", 19, "Wisdom of Solomon"],
+  ["Sirach", 51], ["Hosea", 14], ["Amos", 9], ["Micah", 7], ["Joel", 3],
+  ["Obadiah", 1], ["Jonah", 4], ["Nahum", 3], ["Habakkuk", 3], ["Zephaniah", 3],
+  ["Haggai", 2], ["Zechariah", 14], ["Malachi", 4], ["Isaiah", 66], ["Jeremiah", 52],
+  ["Baruch", 5], ["Lamentations", 5], ["Ezekiel", 48], ["Daniel", 12], ["sus", 1, "Susanna"],
+  ["Bel and the Dragon", 1], ["4 Maccabees", 18, "4 Maccabees (appendix)"], ["Matthew", 28], ["Mark", 16], ["Luke", 24],
+  ["John", 21], ["Acts", 28], ["Romans", 16], ["1 Corinthians", 16], ["2 Corinthians", 13],
+  ["Galatians", 6], ["Ephesians", 6], ["Philippians", 4], ["Colossians", 4], ["1 Thessalonians", 5],
+  ["2 Thessalonians", 3], ["1 Timothy", 6], ["2 Timothy", 4], ["Titus", 3], ["Philemon", 1],
+  ["Hebrews", 13], ["James", 5], ["1 Peter", 5], ["2 Peter", 3], ["1 John", 5],
+  ["2 John", 1], ["3 John", 1], ["Jude", 1], ["Revelation", 22],
+];
+
+// Every API call goes through here, so a failed request always becomes a readable error
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(res.status === 429 ? 'Reading too fast: wait a few seconds and try again.' : 'Could not load this page.');
+  return res.json();
+}
+
+// Sefaria returns light HTML (footnotes, <big>, <br>); keep plain text only
+function clean(html) {
+  return String(html)
+    .replace(/<sup[^>]*>.*?<\/sup>/g, '')
+    .replace(/<i class="footnote">.*?<\/i>/g, '')
+    .replace(/<br\s*\/?>/g, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&thinsp;/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const JPS = 'english|The Holy Scriptures: A New Translation (JPS 1917)';
+
+const BOOKS = {
+  tanakh: {
+    sectionWord: 'Book',
+    sections: TANAKH.map(([name, chapters]) => ({ id: name, label: name, chapters })),
+    // Every load returns the same shape: [{ n, text, original, dir }]
+    async load(section, chapter) {
+      const ref = encodeURIComponent(`${section}.${chapter}`);
+      const data = await fetchJson(`https://www.sefaria.org/api/v3/texts/${ref}?version=${encodeURIComponent(JPS)}&version=hebrew`);
+      const hebrew = data.versions.find((x) => x.actualLanguage === 'he' || x.language === 'he')?.text ?? [];
+      const english = data.versions.find((x) => x.actualLanguage !== 'he' && x.language !== 'he')?.text ?? [];
+      return english.map((text, i) => ({ n: i + 1, text: clean(text), original: clean(hebrew[i] ?? ''), dir: 'rtl' }));
+    },
+  },
+  bible: {
+    sectionWord: 'Book',
+    sections: BIBLE.map(([id, chapters, label = id]) => ({ id, label, chapters })),
+    async load(section, chapter) {
+      const data = await fetchJson(`https://bible-api.com/${encodeURIComponent(`${section} ${chapter}`)}?translation=web`);
+      return data.verses.map((x) => ({ n: x.verse, text: x.text.replace(/\s+/g, ' ').trim() }));
+    },
+  },
+  quran: {
+    sectionWord: 'Surah',
+    sections: null,                 // the 114 surahs are listed by the API, the first time the book is opened
+    async loadSections() {
+      const data = await fetchJson('https://api.alquran.cloud/v1/surah');
+      return data.data.map((s) => ({ id: s.number, label: `${s.number}. ${s.englishName} (${s.englishNameTranslation})`, chapters: 1 }));
+    },
+    // One request asks for two editions at once: the Arabic text and Pickthall's English
+    async load(section) {
+      const [arabic, english] = (await fetchJson(`https://api.alquran.cloud/v1/surah/${section}/editions/quran-uthmani,en.pickthall`)).data;
+      return english.ayahs.map((a, i) => ({ n: a.numberInSurah, text: a.text, original: arabic.ayahs[i].text.replace(/^\uFEFF/, ''), dir: 'rtl' }));
+    },
+  },
+};
+```
+
+```js reader
+const INFO = {
+  tanakh: { title: 'Tanakh', faith: 'Judaism' },
+  bible: { title: 'Holy Bible', faith: 'Christianity' },
+  quran: { title: "Qur'an", faith: 'Islam' },
+};
+let current = { key: null, section: null, chapter: 1 };
+const cache = new Map();            // chapter id → the promise of its verses
+
+async function openBook(key) {
+  const book = BOOKS[key];
+  current = { key, section: null, chapter: 1 };
+  $('reader').className = `reader ${key}`;
+  readerLabels();
+  $('verses').innerHTML = `<p class="loading">${'Opening…'}</p>`;
+  $('reader').showModal();
+  if (!book.sections) {
+    try {
+      book.sections = await book.loadSections();
+    } catch (err) {
+      $('verses').innerHTML = `<p class="loading">${esc(err.message)} ${'Check your internet connection and try again.'}</p>`;
+      return;
+    }
+  }
+  fillSections();
+  goTo(book.sections[0].id, 1);
+}
+
+// The title, faith and picker label (in the current language from step 9)
+function readerLabels() {
+  const key = current.key;
+  if (!key) return;
+  const book = BOOKS[key];
+  $('readerTitle').textContent = INFO[key].title;
+  $('readerFaith').textContent = INFO[key].faith;
+  $('sectionLabel').textContent = book.sectionWord;
+}
+
+function fillSections() {
+  const book = BOOKS[current.key];
+  $('section').innerHTML = book.sections.map((s) => `<option value="${esc(s.id)}">${esc(s.label)}</option>`).join('');
+}
+
+function fillChapters() {
+  const book = BOOKS[current.key];
+  const sec = book.sections.find((s) => String(s.id) === String(current.section));
+  $('chapterWrap').hidden = current.key === 'quran';          // a surah is read whole
+  $('chapter').innerHTML = Array.from({ length: sec.chapters }, (_, i) => `<option>${i + 1}</option>`).join('');
+  $('chapter').value = current.chapter;
+}
+
+async function goTo(section, chapter) {
+  const book = BOOKS[current.key];
+  current.section = section;
+  current.chapter = chapter;
+  $('section').value = section;
+  fillChapters();
+  const id = `${current.key}|${section}|${chapter}`;
+  $('verses').innerHTML = `<p class="loading">${'Turning the page…'}</p>`;
+  try {
+    if (!cache.has(id)) cache.set(id, book.load(section, chapter));    // the promise, so two quick clicks share one request
+    const verses = await cache.get(id);
+    if (id !== `${current.key}|${current.section}|${current.chapter}`) return;   // the reader moved on while this loaded
+    const showOriginal = $('original').checked;
+    $('originalWrap').hidden = !verses.some((x) => x.original);
+    $('verses').innerHTML = verses.map((x) => `<p class="verse"><sup>${x.n}</sup> ${esc(x.text)}${showOriginal && x.original
+      ? `<span class="original" dir="${x.dir}" lang="${current.key === 'quran' ? 'ar' : 'he'}">${esc(x.original)}</span>` : ''}</p>`).join('');
+    $('verses').scrollTop = 0;
+  } catch (err) {
+    cache.delete(id);                // don't keep a failure: the next try asks again
+    if (id !== `${current.key}|${current.section}|${current.chapter}`) return;
+    $('verses').innerHTML = `<p class="loading">${esc(err.message)} ${'Check your internet connection and try again.'}</p>`;
+  }
+}
+
+// Previous / next: past the last chapter of a book, go on to the next book (and back)
+function step(dir) {
+  const book = BOOKS[current.key];
+  const i = book.sections.findIndex((s) => String(s.id) === String(current.section));
+  let chapter = current.chapter + dir;
+  let index = i;
+  if (chapter < 1) {
+    index = i - 1;
+    if (index < 0) return;                       // already at the very beginning
+    chapter = book.sections[index].chapters;     // the last chapter of the book before
+  } else if (chapter > book.sections[i].chapters) {
+    index = i + 1;
+    if (index >= book.sections.length) return;  // already at the very end
+    chapter = 1;
+  }
+  goTo(book.sections[index].id, chapter);
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------- Reader ----------
+document.querySelectorAll('.book').forEach((el) => el.addEventListener('click', () => openBook(el.dataset.book)));
+$('close').onclick = () => $('reader').close();
+// A click on the dark backdrop lands on the dialog itself: close it
+$('reader').addEventListener('click', (e) => { if (e.target === $('reader')) $('reader').close(); });
+$('section').onchange = (e) => goTo(e.target.value, 1);
+$('chapter').onchange = (e) => goTo(current.section, Number(e.target.value));
+$('prev').onclick = () => step(-1);
+$('next').onclick = () => step(1);
+$('original').onchange = () => goTo(current.section, current.chapter);
+```
+
 ## Finish
 
 ### What you learned
