@@ -1675,6 +1675,728 @@ function start() {
 }
 ```
 
+## Session: Relationships
+
+## Step: Linking people to records
+time: 20
+
+Every character has relationships: family, romantic, friends and enemies. Some of those people have their own record in the database (Spider-Man → Iron Man); some don't (Spider-Man → Ben Parker).
+
+```sql
+CREATE TABLE relationships (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  related_name TEXT NOT NULL,
+  related_id   INTEGER REFERENCES characters(id),
+  kind         TEXT NOT NULL CHECK (kind IN ('family', 'friend', 'romantic', 'enemy')),
+  detail       TEXT CHECK (detail IN ('mentor', 'protégé', 'best friend', 'cousin', 'twin', 'married'))
+)
+```
+
+The data only has **names**. Ids are filled in after every character is loaded, with one `UPDATE` and two subqueries:
+
+```sql
+UPDATE relationships
+SET related_id = COALESCE(
+  (SELECT id FROM characters WHERE hero_name = relationships.related_name),
+  (SELECT CASE WHEN COUNT(*) = 1 THEN MIN(id) END
+   FROM characters WHERE real_name = relationships.related_name))
+```
+
+1. Look for a character whose **hero name** matches.
+2. If none, look for a **real name**, but only accept it when **exactly one** character has it. Two characters sharing a real name would make the link a guess, so it's left empty instead.
+3. Neither? `related_id` stays `NULL`, and the name is shown as plain text.
+
+Why after loading? Spider-Man is loaded before Venom, so while Spider-Man's rows go in, Venom doesn't have an id yet. Linking at the end works whatever order the data is in.
+
+**`ON DELETE CASCADE`**: deleting a character deletes their relationship rows too, so nothing points at a record that's gone.
+
+In the profile, a linked name becomes a link (`data-go`), and clicking it opens that character.
+
+### Try it
+
+Open Spider-Man: Iron Man and Doctor Strange are links, Ben Parker isn't. Click Iron Man. Notice his list doesn't mention Spider-Man yet; the next step fixes that.
+
+check: js | a relationships table | /CREATE\s+TABLE\s+relationships/
+check: js | ids filled in with an UPDATE | /UPDATE\s+relationships/
+check: js | real names only when unique | /CASE\s+WHEN\s+COUNT\(\*\)\s*=\s*1\s+THEN\s+MIN\(id\)/
+check: js | names link to profiles | /data-go=/
+
+quiz: Why fill in related_id after all characters are loaded, not while inserting each one?
+- [ ] UPDATE is faster than INSERT
+- [x] A character's relationships can name someone who hasn't been loaded yet and has no id
+- [ ] SQLite requires it
+why: Linking at the end doesn't depend on the order of the data.
+quiz: Two characters have the same real name. What does the real-name subquery return?
+- [ ] The first one's id
+- [x] NULL, because COUNT(*) is 2, so the link is left empty instead of guessed
+- [ ] Both ids
+why: A wrong link is worse than no link.
+
+```js db
+// SQLite compiled to WebAssembly (sql.js): a real SQL database running inside the page.
+// The real project's live demo uses this same library, from the same address.
+const SQLJS = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/';
+let db;
+const SCHEMA = `
+CREATE TABLE characters (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  hero_name        TEXT NOT NULL UNIQUE,
+  real_name        TEXT,
+  alignment        TEXT NOT NULL CHECK (alignment IN ('hero', 'villain', 'antihero')),
+  first_appearance TEXT NOT NULL,
+  first_year       INTEGER NOT NULL,
+  color            TEXT NOT NULL,
+  origin           TEXT NOT NULL,
+  mcu_actor        TEXT,
+  mcu_lore         TEXT,
+  mcu_note         TEXT,
+  image            TEXT,             -- optional photo: a file name in the images folder
+  image_credit     TEXT
+);
+CREATE TABLE powers (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE
+);
+-- many-to-many: a character has many powers, a power belongs to many characters
+CREATE TABLE character_powers (
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  power_id     INTEGER NOT NULL REFERENCES powers(id),
+  PRIMARY KEY (character_id, power_id)
+);
+CREATE TABLE teams (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE
+);
+CREATE TABLE character_teams (
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  team_id      INTEGER NOT NULL REFERENCES teams(id),
+  PRIMARY KEY (character_id, team_id)
+);
+CREATE TABLE mcu_titles (
+  id    INTEGER PRIMARY KEY AUTOINCREMENT,   -- ids follow release order
+  title TEXT NOT NULL UNIQUE,
+  year  INTEGER NOT NULL,
+  kind  TEXT NOT NULL CHECK (kind IN ('film', 'series'))
+);
+-- year is only set when it differs from the title's year (a later season of a series)
+CREATE TABLE mcu_roles (
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  title_id     INTEGER NOT NULL REFERENCES mcu_titles(id),
+  year         INTEGER,
+  PRIMARY KEY (character_id, title_id)
+);
+-- related_id is set when the other person is in the database too. Each pair is stored once.
+CREATE TABLE relationships (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  related_name TEXT NOT NULL,
+  related_id   INTEGER REFERENCES characters(id),
+  kind         TEXT NOT NULL CHECK (kind IN ('family', 'friend', 'romantic', 'enemy')),
+  detail       TEXT CHECK (detail IN ('mentor', 'protégé', 'best friend', 'cousin', 'twin', 'married'))
+);
+`;
+// Run a query with ? parameters and return the rows as plain objects
+function rows(sql, params = []) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const out = [];
+  while (stmt.step()) out.push(stmt.getAsObject());
+  stmt.free();
+  return out;
+}
+const run = (sql, params = []) => db.run(sql, params);
+const lastId = () => rows('SELECT last_insert_rowid() AS id')[0].id;
+
+// Find a power or team by name, adding it the first time it's seen
+function getOrCreate(table, name) {
+  const found = rows(`SELECT id FROM ${table} WHERE name = ?`, [name])[0];
+  if (found) return found.id;
+  run(`INSERT INTO ${table} (name) VALUES (?)`, [name]);
+  return lastId();
+}
+
+// The photo's file name, checked so a typo stops the build with the character's name, not a broken picture.
+// (The real project allows .jpg, .jpeg, .png and .webp; this guide adds .svg for its drawing.)
+const IMAGE_TYPES = ['.jpg', '.jpeg', '.png', '.webp', '.svg'];
+function checkImage(c) {
+  const name = c.image;
+  if (!name) return null;
+  if (name.includes('/') || name.includes('\\') || !IMAGE_TYPES.some((t) => name.toLowerCase().endsWith(t))) {
+    throw new Error(`${c.hero_name}: image must be a file name ending in ${IMAGE_TYPES.join(', ')}, got "${name}"`);
+  }
+  if (!(name in IMAGES)) throw new Error(`${c.hero_name}: image "${name}" is not in the images folder`);
+  return name;
+}
+
+// Create the tables and load every character inside one transaction: all of it goes in, or none of it
+function build() {
+  run('PRAGMA foreign_keys = ON');
+  db.exec(SCHEMA);
+  run('BEGIN');
+  try {
+    for (const t of MCU_TITLES) run('INSERT INTO mcu_titles (title, year, kind) VALUES (?, ?, ?)', [t.title, t.year, t.kind]);
+    for (const c of CHARACTERS) {
+      const mcu = c.mcu || {};
+      run(`INSERT INTO characters (hero_name, real_name, alignment, first_appearance, first_year, color, origin, mcu_actor, mcu_lore, mcu_note, image, image_credit)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [c.hero_name, c.real_name, c.alignment, c.first_appearance, c.first_year, c.color, c.origin, mcu.actor ?? null, mcu.lore ?? null, mcu.note ?? null, checkImage(c), c.image_credit ?? null]);
+      const id = lastId();
+      for (const p of c.powers) run('INSERT INTO character_powers VALUES (?, ?)', [id, getOrCreate('powers', p)]);
+      for (const t of c.teams) run('INSERT INTO character_teams VALUES (?, ?)', [id, getOrCreate('teams', t)]);
+      for (const t of mcu.titles || []) {
+        const [title, year] = typeof t === 'string' ? [t, null] : t;      // "Title", or ["Title", year] for a later season
+        const found = rows('SELECT id FROM mcu_titles WHERE title = ?', [title])[0];
+        if (!found) throw new Error(`${c.hero_name}: unknown MCU title "${title}"`);
+        run('INSERT INTO mcu_roles (character_id, title_id, year) VALUES (?, ?, ?)', [id, found.id, year]);
+      }
+      for (const [name, kind, detail] of c.relationships) {
+        run('INSERT INTO relationships (character_id, related_name, kind, detail) VALUES (?, ?, ?, ?)', [id, name, kind, detail ?? null]);
+      }
+    }
+    // Link each relationship to a character in the database: by hero name, or by real name when exactly one has it
+    run(`UPDATE relationships
+         SET related_id = COALESCE(
+           (SELECT id FROM characters WHERE hero_name = relationships.related_name),
+           (SELECT CASE WHEN COUNT(*) = 1 THEN MIN(id) END
+            FROM characters WHERE real_name = relationships.related_name))`);
+    run('COMMIT');
+  } catch (err) {
+    run('ROLLBACK');
+    throw err;
+  }
+}
+
+// The app's queries, like the real sql/app_queries.sql. Values always go in as ? parameters.
+const Q = {
+  // A name, real name or power (and later the MCU actor). Names that start with the search come first.
+  search: `SELECT c.id, c.hero_name, c.real_name, c.alignment, c.first_year, c.color, c.image
+          FROM characters c
+          WHERE EXISTS (SELECT 1 FROM character_powers cp JOIN powers p ON p.id = cp.power_id
+                        WHERE cp.character_id = c.id AND p.name LIKE ?)
+             OR c.hero_name LIKE ? OR c.real_name LIKE ? OR c.mcu_actor LIKE ?
+          GROUP BY c.id
+          HAVING (? = '' OR c.alignment = ?)
+          ORDER BY CASE WHEN c.hero_name LIKE ? THEN 0
+                        WHEN c.hero_name LIKE ? OR c.real_name LIKE ? THEN 1
+                        ELSE 2 END,
+                   c.hero_name`,
+  side_counts: 'SELECT alignment, COUNT(*) AS total FROM characters GROUP BY alignment',
+  character: 'SELECT * FROM characters WHERE id = ?',
+  powers: `SELECT p.name FROM powers p JOIN character_powers cp ON cp.power_id = p.id
+           WHERE cp.character_id = ? ORDER BY p.name`,
+  teams: `SELECT t.name FROM teams t JOIN character_teams ct ON ct.team_id = t.id
+          WHERE ct.character_id = ? ORDER BY t.name`,
+  // Release order; the first row is their first MCU appearance
+  mcu_titles: `SELECT t.title, t.kind, COALESCE(r.year, t.year) AS year
+               FROM mcu_roles r JOIN mcu_titles t ON t.id = r.title_id
+               WHERE r.character_id = ?
+               ORDER BY COALESCE(r.year, t.year), t.id`,
+  // Only the pairs stored on this character's own record (step 9 adds the other side)
+  relationships: `SELECT r.related_name AS name, r.related_id AS id, r.kind, r.detail, rc.alignment, rc.color
+                  FROM relationships r LEFT JOIN characters rc ON rc.id = r.related_id
+                  WHERE r.character_id = ?
+                  ORDER BY r.kind, name`,
+};
+// The data layer: the page only calls these, never SQL directly
+const SIDES = ['hero', 'villain', 'antihero'];
+function cards(text = '', side = '') {
+  const like = `%${text.trim()}%`;
+  const prefix = `${text.trim()}%`;
+  side = SIDES.includes(side) ? side : '';           // anything else means everyone
+  return rows(Q.search, [like, like, like, like, side, side, prefix, like, like]);
+}
+const sides = () => Object.fromEntries(rows(Q.side_counts).map((r) => [r.alignment, r.total]));
+function character(id) {
+  const [c] = rows(Q.character, [id]);
+  if (!c) return null;
+  return {
+    ...c,
+    powers: rows(Q.powers, [id]).map((r) => r.name),
+    teams: rows(Q.teams, [id]).map((r) => r.name),
+    mcu_titles: rows(Q.mcu_titles, [id]),
+    relationships: rows(Q.relationships, [id]),
+  };
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+// "Doctor Strange" -> "DS", "Spider-Man" -> "SM"
+const monogram = (name) => name.split(/[\s-]+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+const state = { q: '', side: '', selected: null };
+
+// A photo if the character has one, otherwise their initials on the card color
+const photo = (c, cls = 'photo') => (c.image ? `<img class="${cls}" src="${IMAGES[c.image]}" alt="">` : '');
+
+// One card: the character's color, their initials, side, name and real name
+function card(c) {
+  return `<button class="card${state.selected === c.id ? ' selected' : ''}" data-id="${c.id}" style="--c: ${esc(c.color)}">
+    ${photo(c)}
+    <span class="initials">${esc(monogram(c.hero_name))}</span>
+    <span class="badge ${esc(c.alignment)}">${esc(c.alignment)}</span>
+    <span class="name">${esc(c.hero_name)}</span>
+    <span class="real">${esc(c.real_name)} · ${c.first_year}</span>
+  </button>`;
+}
+
+function drawGrid() {
+  const list = cards(state.q, state.side);
+  $('grid').innerHTML = list.length ? list.map(card).join('') : '<p class="muted">No characters match.</p>';
+  $('count').textContent = `${list.length} character${list.length === 1 ? '' : 's'}`;
+}
+
+const SIDE_LABEL = { hero: 'Heroes', villain: 'Villains', antihero: 'Antiheroes' };
+function drawSides() {
+  const counts = sides();
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const tabs = [['', 'All', total], ...Object.entries(SIDE_LABEL).map(([s, label]) => [s, label, counts[s] || 0])];
+  $('sides').innerHTML = tabs.map(([s, label, n]) =>
+    `<button data-side="${s}" class="${state.side === s ? 'on' : ''}">${label} <small>${n}</small></button>`).join('');
+}
+
+function mcuSection(p) {
+  if (!p.mcu_titles.length) return `<h3>In the MCU</h3><p class="muted">${esc(p.mcu_note || 'Not in the MCU yet.')}</p>`;
+  const first = p.mcu_titles[0];
+  return `<h3>In the MCU</h3>
+    <p><strong>Played by</strong> ${esc(p.mcu_actor)}<br><strong>First appearance</strong> ${esc(first.title)} (${first.year})</p>
+    <p>${esc(p.mcu_lore)}</p>
+    <ol class="titles">${p.mcu_titles.map((t) => `<li>${esc(t.title)} <small>${t.kind}, ${t.year}</small></li>`).join('')}</ol>`;
+}
+
+// A name links to their profile when they're in the database (related_id was found)
+const person = (r) => (r.id ? `<a href="#" data-go="${r.id}">${esc(r.name)}</a>` : esc(r.name))
+  + (r.detail ? ` <small>(${esc(r.detail)})</small>` : '');
+
+function relationshipSection(p) {
+  if (!p.relationships.length) return '';
+  return `<h3>Relationships</h3><ul>${p.relationships.map((r) => `<li>${esc(r.kind)}: ${person(r)}</li>`).join('')}</ul>`;
+}
+
+function drawProfile() {
+  const p = state.selected && character(state.selected);
+  $('profile').hidden = !p;
+  $('layout').classList.toggle('open', Boolean(p));
+  if (!p) return;
+  $('profile').innerHTML = `
+    ${photo(p, 'portrait')}
+    <h2>${esc(p.hero_name)}</h2>
+    <p class="muted">${esc(p.real_name)} · ${esc(p.alignment)} · first seen in ${esc(p.first_appearance)} (${p.first_year})</p>
+    <h3>Origin</h3><p>${esc(p.origin)}</p>
+    <h3>Powers</h3><div class="chips">${p.powers.map((x) => `<button class="chip" data-power="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    <h3>Teams</h3><p>${p.teams.length ? p.teams.map(esc).join(', ') : '<span class="muted">None</span>'}</p>
+    ${mcuSection(p)}
+    ${relationshipSection(p)}
+    ${p.image_credit ? `<p class="credit"><small>Photo: ${esc(p.image_credit)}</small></p>` : ''}`;
+}
+
+function select(id) {
+  state.selected = state.selected === id ? null : id;      // clicking the open card again closes it
+  drawGrid();
+  drawProfile();
+}
+
+$('grid').addEventListener('click', (e) => {
+  const c = e.target.closest('.card');
+  if (c) select(Number(c.dataset.id));
+});
+$('q').addEventListener('input', (e) => {
+  state.q = e.target.value;
+  drawGrid();
+});
+$('sides').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  state.side = b.dataset.side;
+  drawSides();
+  drawGrid();
+});
+$('profile').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-power]');
+  if (chip) {                               // a power chip searches for everyone who has it
+    state.q = $('q').value = chip.dataset.power;
+    drawGrid();
+  }
+  const link = e.target.closest('[data-go]');
+  if (link) {
+    e.preventDefault();
+    state.selected = null;                  // select() toggles, so start from closed
+    select(Number(link.dataset.go));
+  }
+});
+
+function start() {
+  drawSides(); drawGrid();
+}
+```
+
+## Step: Both sides, and a rogues gallery
+time: 20
+
+Spider-Man's data says Iron Man is his mentor. Iron Man's data doesn't mention Spider-Man, and it shouldn't have to: **each pair is stored once**, and the query shows it on both pages.
+
+```svg One row, shown on both characters' pages
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 190" font-family="sans-serif" font-size="10"><rect x="95" y="8" width="240" height="44" rx="6" fill="#0f172a"/><text x="215" y="24" text-anchor="middle" fill="#e2e8f0" font-family="monospace">relationships: one row</text><text x="215" y="40" text-anchor="middle" fill="#fde68a" font-family="monospace">Spider-Man → Iron Man · friend · mentor</text><line x1="160" y1="52" x2="100" y2="92" stroke="#475569" stroke-width="2"/><line x1="270" y1="52" x2="330" y2="92" stroke="#475569" stroke-width="2"/><rect x="10" y="92" width="190" height="62" rx="6" fill="#e2e8f0"/><text x="20" y="110" font-weight="700">Spider-Man's page</text><text x="20" y="126">first half of the UNION:</text><text x="20" y="142">Friends: Iron Man (mentor)</text><rect x="230" y="92" width="190" height="62" rx="6" fill="#bbf7d0"/><text x="240" y="110" font-weight="700">Iron Man's page</text><text x="240" y="126">second half, detail flipped:</text><text x="240" y="142">Friends: Spider-Man (protégé)</text><text x="215" y="176" text-anchor="middle" fill="#475569" font-size="11">entered once, shown on both pages, never twice on one</text></svg>
+```
+
+The relationships query becomes two queries joined by `UNION`:
+
+| Half | Finds | Shows |
+|---|---|---|
+| first | rows stored **on this character** (`r.character_id = ?`) | the other person, as stored |
+| second | rows stored **on someone else that point here** (`r.related_id = ?`) | the person who stored it, with `mentor` and `protégé` swapped by a `CASE` |
+
+`UNION` (not `UNION ALL`) also drops exact duplicate rows. And `NOT EXISTS (… mine …)` skips a second-half row when this character has already stored the same pair themselves, so nobody shows up twice.
+
+The outer `ORDER BY` sorts by kind (family, romantic, friends, enemies), then **villains first** among each group, then by name.
+
+**Grouped sections.** The page splits the rows into **Family**, **Romantic** and **Friends** (called **Allies** on a villain's page). Enemies become a **rogues gallery**: small cards in each enemy's color, clickable when they have a record. On a villain's page the same list is titled **Heroes they fight**.
+
+### Try it
+
+Open Iron Man: Spider-Man is there as his protégé. Open Spider-Man: the Green Goblin, Doctor Octopus and Mysterio are in his rogues gallery, though only their records name him.
+
+check: js | both sides with UNION | /\bUNION\b/
+check: js | no pair twice | /NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+relationships\s+mine/
+check: js | a mentor is seen as a protégé | /WHEN\s+'mentor'\s+THEN\s+'protégé'/
+check: js | enemies as mini cards | /const\s+mini\s*=/
+
+quiz: Why store each relationship once and use UNION, instead of entering it on both characters?
+- [ ] UNION is required for JOINs
+- [x] One row can't disagree with itself; two copies can drift apart when one is edited
+- [ ] It uses less JavaScript
+why: One fact, one place: the database shows it from both directions.
+quiz: What does the NOT EXISTS (… mine …) part prevent?
+- [ ] Showing enemies
+- [x] Listing the same person twice when both characters stored the pair
+- [ ] Showing people without a record
+why: If I stored it myself, the other side's copy is skipped.
+
+```js db
+// SQLite compiled to WebAssembly (sql.js): a real SQL database running inside the page.
+// The real project's live demo uses this same library, from the same address.
+const SQLJS = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/';
+let db;
+const SCHEMA = `
+CREATE TABLE characters (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  hero_name        TEXT NOT NULL UNIQUE,
+  real_name        TEXT,
+  alignment        TEXT NOT NULL CHECK (alignment IN ('hero', 'villain', 'antihero')),
+  first_appearance TEXT NOT NULL,
+  first_year       INTEGER NOT NULL,
+  color            TEXT NOT NULL,
+  origin           TEXT NOT NULL,
+  mcu_actor        TEXT,
+  mcu_lore         TEXT,
+  mcu_note         TEXT,
+  image            TEXT,             -- optional photo: a file name in the images folder
+  image_credit     TEXT
+);
+CREATE TABLE powers (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE
+);
+-- many-to-many: a character has many powers, a power belongs to many characters
+CREATE TABLE character_powers (
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  power_id     INTEGER NOT NULL REFERENCES powers(id),
+  PRIMARY KEY (character_id, power_id)
+);
+CREATE TABLE teams (
+  id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE
+);
+CREATE TABLE character_teams (
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  team_id      INTEGER NOT NULL REFERENCES teams(id),
+  PRIMARY KEY (character_id, team_id)
+);
+CREATE TABLE mcu_titles (
+  id    INTEGER PRIMARY KEY AUTOINCREMENT,   -- ids follow release order
+  title TEXT NOT NULL UNIQUE,
+  year  INTEGER NOT NULL,
+  kind  TEXT NOT NULL CHECK (kind IN ('film', 'series'))
+);
+-- year is only set when it differs from the title's year (a later season of a series)
+CREATE TABLE mcu_roles (
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  title_id     INTEGER NOT NULL REFERENCES mcu_titles(id),
+  year         INTEGER,
+  PRIMARY KEY (character_id, title_id)
+);
+-- related_id is set when the other person is in the database too. Each pair is stored once.
+CREATE TABLE relationships (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  related_name TEXT NOT NULL,
+  related_id   INTEGER REFERENCES characters(id),
+  kind         TEXT NOT NULL CHECK (kind IN ('family', 'friend', 'romantic', 'enemy')),
+  detail       TEXT CHECK (detail IN ('mentor', 'protégé', 'best friend', 'cousin', 'twin', 'married'))
+);
+`;
+// Run a query with ? parameters and return the rows as plain objects
+function rows(sql, params = []) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const out = [];
+  while (stmt.step()) out.push(stmt.getAsObject());
+  stmt.free();
+  return out;
+}
+const run = (sql, params = []) => db.run(sql, params);
+const lastId = () => rows('SELECT last_insert_rowid() AS id')[0].id;
+
+// Find a power or team by name, adding it the first time it's seen
+function getOrCreate(table, name) {
+  const found = rows(`SELECT id FROM ${table} WHERE name = ?`, [name])[0];
+  if (found) return found.id;
+  run(`INSERT INTO ${table} (name) VALUES (?)`, [name]);
+  return lastId();
+}
+
+// The photo's file name, checked so a typo stops the build with the character's name, not a broken picture.
+// (The real project allows .jpg, .jpeg, .png and .webp; this guide adds .svg for its drawing.)
+const IMAGE_TYPES = ['.jpg', '.jpeg', '.png', '.webp', '.svg'];
+function checkImage(c) {
+  const name = c.image;
+  if (!name) return null;
+  if (name.includes('/') || name.includes('\\') || !IMAGE_TYPES.some((t) => name.toLowerCase().endsWith(t))) {
+    throw new Error(`${c.hero_name}: image must be a file name ending in ${IMAGE_TYPES.join(', ')}, got "${name}"`);
+  }
+  if (!(name in IMAGES)) throw new Error(`${c.hero_name}: image "${name}" is not in the images folder`);
+  return name;
+}
+
+// Create the tables and load every character inside one transaction: all of it goes in, or none of it
+function build() {
+  run('PRAGMA foreign_keys = ON');
+  db.exec(SCHEMA);
+  run('BEGIN');
+  try {
+    for (const t of MCU_TITLES) run('INSERT INTO mcu_titles (title, year, kind) VALUES (?, ?, ?)', [t.title, t.year, t.kind]);
+    for (const c of CHARACTERS) {
+      const mcu = c.mcu || {};
+      run(`INSERT INTO characters (hero_name, real_name, alignment, first_appearance, first_year, color, origin, mcu_actor, mcu_lore, mcu_note, image, image_credit)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [c.hero_name, c.real_name, c.alignment, c.first_appearance, c.first_year, c.color, c.origin, mcu.actor ?? null, mcu.lore ?? null, mcu.note ?? null, checkImage(c), c.image_credit ?? null]);
+      const id = lastId();
+      for (const p of c.powers) run('INSERT INTO character_powers VALUES (?, ?)', [id, getOrCreate('powers', p)]);
+      for (const t of c.teams) run('INSERT INTO character_teams VALUES (?, ?)', [id, getOrCreate('teams', t)]);
+      for (const t of mcu.titles || []) {
+        const [title, year] = typeof t === 'string' ? [t, null] : t;      // "Title", or ["Title", year] for a later season
+        const found = rows('SELECT id FROM mcu_titles WHERE title = ?', [title])[0];
+        if (!found) throw new Error(`${c.hero_name}: unknown MCU title "${title}"`);
+        run('INSERT INTO mcu_roles (character_id, title_id, year) VALUES (?, ?, ?)', [id, found.id, year]);
+      }
+      for (const [name, kind, detail] of c.relationships) {
+        run('INSERT INTO relationships (character_id, related_name, kind, detail) VALUES (?, ?, ?, ?)', [id, name, kind, detail ?? null]);
+      }
+    }
+    // Link each relationship to a character in the database: by hero name, or by real name when exactly one has it
+    run(`UPDATE relationships
+         SET related_id = COALESCE(
+           (SELECT id FROM characters WHERE hero_name = relationships.related_name),
+           (SELECT CASE WHEN COUNT(*) = 1 THEN MIN(id) END
+            FROM characters WHERE real_name = relationships.related_name))`);
+    run('COMMIT');
+  } catch (err) {
+    run('ROLLBACK');
+    throw err;
+  }
+}
+
+// The app's queries, like the real sql/app_queries.sql. Values always go in as ? parameters.
+const Q = {
+  // A name, real name or power (and later the MCU actor). Names that start with the search come first.
+  search: `SELECT c.id, c.hero_name, c.real_name, c.alignment, c.first_year, c.color, c.image
+          FROM characters c
+          WHERE EXISTS (SELECT 1 FROM character_powers cp JOIN powers p ON p.id = cp.power_id
+                        WHERE cp.character_id = c.id AND p.name LIKE ?)
+             OR c.hero_name LIKE ? OR c.real_name LIKE ? OR c.mcu_actor LIKE ?
+          GROUP BY c.id
+          HAVING (? = '' OR c.alignment = ?)
+          ORDER BY CASE WHEN c.hero_name LIKE ? THEN 0
+                        WHEN c.hero_name LIKE ? OR c.real_name LIKE ? THEN 1
+                        ELSE 2 END,
+                   c.hero_name`,
+  side_counts: 'SELECT alignment, COUNT(*) AS total FROM characters GROUP BY alignment',
+  character: 'SELECT * FROM characters WHERE id = ?',
+  powers: `SELECT p.name FROM powers p JOIN character_powers cp ON cp.power_id = p.id
+           WHERE cp.character_id = ? ORDER BY p.name`,
+  teams: `SELECT t.name FROM teams t JOIN character_teams ct ON ct.team_id = t.id
+          WHERE ct.character_id = ? ORDER BY t.name`,
+  // Release order; the first row is their first MCU appearance
+  mcu_titles: `SELECT t.title, t.kind, COALESCE(r.year, t.year) AS year
+               FROM mcu_roles r JOIN mcu_titles t ON t.id = r.title_id
+               WHERE r.character_id = ?
+               ORDER BY COALESCE(r.year, t.year), t.id`,
+  // Pairs stored on their own record, plus pairs stored on the other person's record (UNION).
+  // A mentor seen from the other side is a protégé.
+  relationships: `SELECT name, id, kind, detail, alignment, color FROM (
+                    SELECT r.related_name AS name, r.related_id AS id, r.kind, r.detail, rc.alignment, rc.color
+                    FROM relationships r LEFT JOIN characters rc ON rc.id = r.related_id
+                    WHERE r.character_id = ?
+                    UNION
+                    SELECT c.hero_name, c.id, r.kind,
+                           CASE r.detail WHEN 'mentor' THEN 'protégé' WHEN 'protégé' THEN 'mentor' ELSE r.detail END,
+                           c.alignment, c.color
+                    FROM relationships r JOIN characters c ON c.id = r.character_id
+                    WHERE r.related_id = ?
+                      AND NOT EXISTS (SELECT 1 FROM relationships mine
+                                      WHERE mine.character_id = ? AND mine.related_id = c.id AND mine.kind = r.kind))
+                  ORDER BY CASE kind WHEN 'family' THEN 1 WHEN 'romantic' THEN 2 WHEN 'friend' THEN 3 ELSE 4 END,
+                           CASE alignment WHEN 'villain' THEN 1 WHEN 'antihero' THEN 2 WHEN 'hero' THEN 3 ELSE 4 END, name`,
+};
+// The data layer: the page only calls these, never SQL directly
+const SIDES = ['hero', 'villain', 'antihero'];
+function cards(text = '', side = '') {
+  const like = `%${text.trim()}%`;
+  const prefix = `${text.trim()}%`;
+  side = SIDES.includes(side) ? side : '';           // anything else means everyone
+  return rows(Q.search, [like, like, like, like, side, side, prefix, like, like]);
+}
+const sides = () => Object.fromEntries(rows(Q.side_counts).map((r) => [r.alignment, r.total]));
+function character(id) {
+  const [c] = rows(Q.character, [id]);
+  if (!c) return null;
+  return {
+    ...c,
+    powers: rows(Q.powers, [id]).map((r) => r.name),
+    teams: rows(Q.teams, [id]).map((r) => r.name),
+    mcu_titles: rows(Q.mcu_titles, [id]),
+    relationships: rows(Q.relationships, [id, id, id]),
+  };
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+// "Doctor Strange" -> "DS", "Spider-Man" -> "SM"
+const monogram = (name) => name.split(/[\s-]+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+const state = { q: '', side: '', selected: null };
+
+// A photo if the character has one, otherwise their initials on the card color
+const photo = (c, cls = 'photo') => (c.image ? `<img class="${cls}" src="${IMAGES[c.image]}" alt="">` : '');
+
+// One card: the character's color, their initials, side, name and real name
+function card(c) {
+  return `<button class="card${state.selected === c.id ? ' selected' : ''}" data-id="${c.id}" style="--c: ${esc(c.color)}">
+    ${photo(c)}
+    <span class="initials">${esc(monogram(c.hero_name))}</span>
+    <span class="badge ${esc(c.alignment)}">${esc(c.alignment)}</span>
+    <span class="name">${esc(c.hero_name)}</span>
+    <span class="real">${esc(c.real_name)} · ${c.first_year}</span>
+  </button>`;
+}
+
+function drawGrid() {
+  const list = cards(state.q, state.side);
+  $('grid').innerHTML = list.length ? list.map(card).join('') : '<p class="muted">No characters match.</p>';
+  $('count').textContent = `${list.length} character${list.length === 1 ? '' : 's'}`;
+}
+
+const SIDE_LABEL = { hero: 'Heroes', villain: 'Villains', antihero: 'Antiheroes' };
+function drawSides() {
+  const counts = sides();
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const tabs = [['', 'All', total], ...Object.entries(SIDE_LABEL).map(([s, label]) => [s, label, counts[s] || 0])];
+  $('sides').innerHTML = tabs.map(([s, label, n]) =>
+    `<button data-side="${s}" class="${state.side === s ? 'on' : ''}">${label} <small>${n}</small></button>`).join('');
+}
+
+function mcuSection(p) {
+  if (!p.mcu_titles.length) return `<h3>In the MCU</h3><p class="muted">${esc(p.mcu_note || 'Not in the MCU yet.')}</p>`;
+  const first = p.mcu_titles[0];
+  return `<h3>In the MCU</h3>
+    <p><strong>Played by</strong> ${esc(p.mcu_actor)}<br><strong>First appearance</strong> ${esc(first.title)} (${first.year})</p>
+    <p>${esc(p.mcu_lore)}</p>
+    <ol class="titles">${p.mcu_titles.map((t) => `<li>${esc(t.title)} <small>${t.kind}, ${t.year}</small></li>`).join('')}</ol>`;
+}
+
+// A name links to their profile when they're in the database (related_id was found)
+const person = (r) => (r.id ? `<a href="#" data-go="${r.id}">${esc(r.name)}</a>` : esc(r.name))
+  + (r.detail ? ` <small>(${esc(r.detail)})</small>` : '');
+
+// An enemy as a small card you can click (or a plain label when they aren't in the database)
+const mini = (r) => (r.id
+  ? `<button class="mini" data-go="${r.id}" style="--c: ${esc(r.color)}"><span>${esc(monogram(r.name))}</span>${esc(r.name)}</button>`
+  : `<span class="mini off">${esc(r.name)}</span>`);
+
+const KINDS = [['family', 'Family'], ['romantic', 'Romantic'], ['friend', 'Friends']];
+function relationshipSection(p) {
+  const groups = KINDS.map(([kind, label]) => {
+    const list = p.relationships.filter((r) => r.kind === kind);
+    if (!list.length) return '';
+    const title = kind === 'friend' && p.alignment === 'villain' ? 'Allies' : label;
+    return `<h4>${title}</h4><p>${list.map(person).join(', ')}</p>`;
+  }).join('');
+  const enemies = p.relationships.filter((r) => r.kind === 'enemy');
+  const rogues = enemies.length
+    ? `<h3>${p.alignment === 'villain' ? 'Heroes they fight' : 'Rogues gallery'}</h3><div class="minis">${enemies.map(mini).join('')}</div>`
+    : '';
+  return (groups ? `<h3>Relationships</h3>${groups}` : '') + rogues;
+}
+
+function drawProfile() {
+  const p = state.selected && character(state.selected);
+  $('profile').hidden = !p;
+  $('layout').classList.toggle('open', Boolean(p));
+  if (!p) return;
+  $('profile').innerHTML = `
+    ${photo(p, 'portrait')}
+    <h2>${esc(p.hero_name)}</h2>
+    <p class="muted">${esc(p.real_name)} · ${esc(p.alignment)} · first seen in ${esc(p.first_appearance)} (${p.first_year})</p>
+    <h3>Origin</h3><p>${esc(p.origin)}</p>
+    <h3>Powers</h3><div class="chips">${p.powers.map((x) => `<button class="chip" data-power="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    <h3>Teams</h3><p>${p.teams.length ? p.teams.map(esc).join(', ') : '<span class="muted">None</span>'}</p>
+    ${mcuSection(p)}
+    ${relationshipSection(p)}
+    ${p.image_credit ? `<p class="credit"><small>Photo: ${esc(p.image_credit)}</small></p>` : ''}`;
+}
+
+function select(id) {
+  state.selected = state.selected === id ? null : id;      // clicking the open card again closes it
+  drawGrid();
+  drawProfile();
+}
+
+$('grid').addEventListener('click', (e) => {
+  const c = e.target.closest('.card');
+  if (c) select(Number(c.dataset.id));
+});
+$('q').addEventListener('input', (e) => {
+  state.q = e.target.value;
+  drawGrid();
+});
+$('sides').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  state.side = b.dataset.side;
+  drawSides();
+  drawGrid();
+});
+$('profile').addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-power]');
+  if (chip) {                               // a power chip searches for everyone who has it
+    state.q = $('q').value = chip.dataset.power;
+    drawGrid();
+  }
+  const link = e.target.closest('[data-go]');
+  if (link) {
+    e.preventDefault();
+    state.selected = null;                  // select() toggles, so start from closed
+    select(Number(link.dataset.go));
+  }
+});
+
+function start() {
+  drawSides(); drawGrid();
+}
+```
+
 ## Finish
 
 ### What you learned
