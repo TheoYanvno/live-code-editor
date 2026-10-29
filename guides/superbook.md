@@ -1814,6 +1814,729 @@ $('smooth').onclick = () => {
 };
 ```
 
+## Session: Languages and the real project
+
+## Step: Other languages, and right to left
+time: 25
+
+SuperBook speaks eight languages. This step adds two, **Spanish** and **Hebrew**, using the real app's translations.
+
+**Text by key.** Every piece of page text gets a key: `askButton`, `book.bible`, `faith.quran`. English lives in `UI`; each other language is a **pack** that translates the same keys. `t(key)` looks in the current pack, then English, then gives back the key itself, so a missing translation shows English instead of nothing:
+
+```js
+return fill(pack?.ui?.[key] ?? UI[key] ?? key, vars);
+```
+
+You can see the fallback working: these packs leave out the tagline, so it stays in English. (`?.` stops quietly at a missing part; `??` uses the right-hand side only when the left is `null` or `undefined`.)
+
+**Static text** in the HTML is marked with `data-t="key"`, and `applyLanguage()` fills every marked element. The placeholder and the close button's `aria-label` are attributes, so they're set separately.
+
+**Answers in the language.** `tr('topics', id, field, english)` gives a topic's translated title or paragraph, or the English when the pack doesn't have it: five of the eight topics are translated here, so the other three answer in English. The packs also list **local words** for each topic and book. Those match as *word beginnings*, so `profet` matches *profeta* and *profetas*. Hebrew attaches small words to the front of the next one (*בתורה* is "in the Torah"), so `wordForms()` also tries each word without those prefixes.
+
+**Right to left.** Hebrew sets `<html dir="rtl">`, and the whole layout mirrors: flex rows reverse, text aligns right, and the language picker (placed with `inset-inline-end`) moves to the left. The canvas doesn't follow `dir`, so `SandWriter` is told: it sets `ctx.direction` and `textAlign`, starts each line at the right edge, grows the clip leftwards, and throws the grains the other way.
+
+**Remembered.** The choice is saved in `localStorage`, inside `try … catch`: storage can be blocked (this editor's preview blocks it), and then the page should still work, just without remembering.
+
+### Try it
+
+Switch to Español and ask *¿Qué dice el Corán sobre Jesús?* Switch to עברית: the page mirrors and the answer is rewritten right to left.
+
+check: html | static text marked with keys | /data-t="/
+check: js | t() looks up page text | /function\s+t\s*\(\s*key/
+check: js | the current language, then English | /pack\?\.ui\?\.\[key\]\s*\?\?\s*UI\[key\]/
+check: js | right to left for Hebrew | /documentElement\.dir\s*=/
+check: js | the choice is remembered | /localStorage\.setItem\(\s*PREF/
+
+quiz: A pack has no translation for a key. What does t() show?
+- [ ] Nothing
+- [x] The English text, because ?? falls back to UI[key]
+- [ ] An error
+why: Missing translations degrade to English, never to a blank.
+quiz: Why does SandWriter need to be told the direction, when CSS already sets dir="rtl"?
+- [ ] It doesn't
+- [x] A canvas draws pixels at the positions you give; the page's dir doesn't move them, so the writer starts lines at the right and reveals leftwards itself
+- [ ] Hebrew fonts need it
+why: CSS lays out elements; inside a canvas you do the layout.
+
+```html page
+<div class="sky" aria-hidden="true"><div class="sun"></div><div class="dune far"></div><div class="dune near"></div></div>
+<header class="top">
+  <h1>SuperBook</h1>
+  <p class="tagline" data-t="tagline">Three sacred books of the Abrahamic faiths. Open a book to read it, or ask the sand a question.</p>
+  <label class="lang"><span data-t="language">Language</span> <select id="lang"></select></label>
+</header>
+<main>
+  <div class="books">
+    <button class="book tanakh" data-book="tanakh">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,14 82,70 18,70"/><polygon points="50,86 18,30 82,30"/></svg>
+      <span class="title" data-t="book.tanakh">Tanakh</span>
+      <span class="faith" data-t="faith.tanakh">Judaism</span>
+    </button>
+    <button class="book bible" data-book="bible">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><path d="M44 14h12v24h20v12H56v36H44V50H24V38h20z"/></svg>
+      <span class="title" data-t="book.bible">Holy Bible</span>
+      <span class="faith" data-t="faith.bible">Christianity</span>
+    </button>
+    <button class="book quran" data-book="quran">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><rect x="27" y="27" width="46" height="46"/><rect x="27" y="27" width="46" height="46" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="9"/></svg>
+      <span class="title" data-t="book.quran">Qur'an</span>
+      <span class="faith" data-t="faith.quran">Islam</span>
+    </button>
+  </div>
+  <form id="askForm" class="ask">
+    <label for="question" data-t="askTitle">Ask the sand</label>
+    <div class="row">
+      <input id="question" autocomplete="off" placeholder="Ask anything, e.g. How do the Bible and the Qur'an see Jesus?">
+      <button data-t="askButton">Ask</button>
+    </div>
+  </form>
+  <div id="sandWrap" class="sand-wrap" hidden>
+    <canvas id="sand"></canvas>
+    <p id="spoken" class="sr-only" aria-live="polite"></p>
+    <button id="smooth" class="smooth" type="button" data-t="smooth">Let the wind smooth the sand</button>
+  </div>
+</main>
+<dialog id="reader" class="reader">
+  <header>
+    <div><h2 id="readerTitle"></h2><p id="readerFaith" class="muted"></p></div>
+    <button id="close" class="close" aria-label="Close book">✕</button>
+  </header>
+  <div class="pickers">
+    <label><span id="sectionLabel">Book</span> <select id="section"></select></label>
+    <label id="chapterWrap"><span data-t="chapter">Chapter</span> <select id="chapter"></select></label>
+    <label id="originalWrap" class="check"><input type="checkbox" id="original" checked> <span data-t="original">Original language</span></label>
+  </div>
+  <div id="verses" class="verses"></div>
+  <footer>
+    <button id="prev">← <span data-t="previous">Previous</span></button>
+    <button id="next"><span data-t="next">Next</span> →</button>
+  </footer>
+</dialog>
+```
+
+```js lang
+// Languages. English is built in; each other language is a "pack" that translates the same keys.
+// Anything a pack leaves out falls back to English. (The real app has 8 languages, each in its own file.)
+const LANGS = [
+  { code: 'en', name: 'English', dir: 'ltr' },
+  { code: 'es', name: 'Español', dir: 'ltr' },
+  { code: 'he', name: 'עברית', dir: 'rtl' },
+];
+
+// English page text, by key. {name} placeholders are filled in by t().
+const UI = {"tagline": "Three sacred books of the Abrahamic faiths. Open a book to read it, or ask the sand a question.", "askTitle": "Ask the sand", "askPlaceholder": "Ask anything, e.g. How do the Bible and the Qur'an see Jesus?", "askButton": "Ask", "smooth": "Let the wind smooth the sand", "book.tanakh": "Tanakh", "book.bible": "Holy Bible", "book.quran": "Qur'an", "short.tanakh": "Tanakh", "short.bible": "Bible", "short.quran": "Qur'an", "faith.tanakh": "Judaism", "faith.bible": "Christianity", "faith.quran": "Islam", "vs": "vs", "opening": "Opening…", "turning": "Turning the page…", "loadError": "Could not load this page.", "checkConnection": "Check your internet connection and try again.", "tooFast": "Reading too fast: wait a few seconds and try again.", "previous": "Previous", "next": "Next", "chapter": "Chapter", "sectionBook": "Book", "sectionSurah": "Surah", "closeBook": "Close book", "original": "Original language", "language": "Language"};
+
+// Copied from the real src/lang/es.js and he.js: the page text, the words that name each book,
+// five of the topics, and (Hebrew) the one-letter words that attach to the front of the next word.
+const PACKS = {
+  es: {"ui": {"askTitle": "Pregúntale a la arena", "askPlaceholder": "Pregunta lo que quieras, p. ej. ¿Cómo ven a Jesús la Biblia y el Corán?", "askButton": "Preguntar", "smooth": "Que el viento alise la arena", "book.tanakh": "Tanaj", "book.bible": "Santa Biblia", "book.quran": "Corán", "short.tanakh": "Tanaj", "short.bible": "Biblia", "short.quran": "Corán", "faith.tanakh": "Judaísmo", "faith.bible": "Cristianismo", "faith.quran": "Islam", "vs": "frente a", "opening": "Abriendo…", "turning": "Pasando la página…", "loadError": "No se pudo cargar esta página.", "checkConnection": "Revisa tu conexión a internet y vuelve a intentarlo.", "tooFast": "Estás leyendo muy rápido: espera unos segundos y vuelve a intentarlo.", "previous": "Anterior", "next": "Siguiente", "chapter": "Capítulo", "sectionBook": "Libro", "sectionSurah": "Sura", "closeBook": "Cerrar el libro", "original": "Idioma original", "language": "Idioma"}, "bookWords": {"tanakh": ["tanaj", "tora", "judio", "judia", "judaismo", "biblia hebrea", "talmud"], "bible": ["biblia", "nuevo testamento", "antiguo testamento", "evangelio", "cristian"], "quran": ["coran", "islam", "musulman"], "hebrewBible": ["biblia hebrea"]}, "topics": {"profile": {"title": "Sobre el libro", "keywords": ["~que es", "~hablame de", "~describe", "~explica", "~sobre"], "tanakh": "El Tanaj es la Biblia hebrea, la escritura del judaísmo: 24 libros en tres partes, la Torá (Enseñanza), Nevi'im (Profetas) y Ketuvim (Escritos). Narra la creación, la alianza de Dios con Abraham y el pueblo de Israel, el Éxodo, la Ley dada en el Sinaí, los reyes, el exilio en Babilonia y el regreso. Se escribió sobre todo en hebreo a lo largo de muchos siglos.", "bible": "La Biblia cristiana tiene dos partes. El Antiguo Testamento contiene las escrituras hebreas (39 libros según el cómputo protestante), y el Nuevo Testamento (27 libros, escritos en griego en el siglo I d. C.) narra la vida, muerte y resurrección de Jesús y la Iglesia primitiva. Las Biblias ortodoxas orientales tienen 76 libros, las católicas 73 y las protestantes 66; la diferencia está en el Antiguo Testamento.", "quran": "El Corán es la escritura del islam: 114 suras (capítulos) y 6.236 versículos en árabe. Los musulmanes creen que es la palabra de Dios revelada al profeta Mahoma por medio del ángel Gabriel entre los años 610 y 632 d. C. Llama a adorar a un solo Dios, vuelve a contar las historias de profetas anteriores y ofrece orientación para la vida."}, "differences": {"title": "En qué se diferencian los libros", "keywords": ["diferencia", "diferente", "distint", "~compar", "~contrast"], "shared": "Los tres adoran al Dios de Abraham y comparten muchos personajes, como Adán, Noé, Abraham, Moisés y David. Se diferencian en quién habla, qué historia cuentan y qué revelación consideran definitiva.", "tanakh": "Sobre todo narración, ley, poesía y profecía escritas por personas acerca de Dios, que cuentan una larga historia del pueblo de Israel. Se escribió a lo largo de unos mil años. El judaísmo no acepta el Nuevo Testamento ni el Corán como escritura.", "bible": "Conserva las escrituras hebreas como Antiguo Testamento y añade el Nuevo Testamento sobre Jesús, a quien los cristianos ven como el cumplimiento de esas escrituras. El Nuevo Testamento se escribió en unos 50 años e incluye Evangelios, una historia (Hechos), cartas y una profecía (Apocalipsis).", "quran": "Habla casi por completo como Dios dirigiéndose a Mahoma y a la humanidad, a menudo con un «Nosotros». Vuelve a contar brevemente las historias de los profetas anteriores, como lecciones, en lugar de seguir un orden histórico. Reconoce la Torá, los Salmos y el Evangelio como revelaciones anteriores, pero enseña que el Corán es la definitiva y preservada. Se reveló a lo largo de 23 años."}, "jesus": {"title": "Jesús", "keywords": ["jesus", "cristo", "isa", "hijo de dios", "crucifixion", "crucificad", "cruz", "resurreccion"], "tanakh": "Jesús no aparece en el Tanaj. El judaísmo lo ve en general como un maestro judío del siglo I, no como el Mesías ni como divino.", "bible": "Jesús es el Hijo de Dios y el Mesías, nacido de la Virgen María, que enseñó, sanó, murió crucificado por los pecados del mundo y resucitó de entre los muertos.", "quran": "Jesús (Isa) es uno de los más grandes profetas y el Mesías, nacido de la Virgen María, que hizo milagros. No es divino, y el Corán (4:157) dice que no fue muerto ni crucificado; la mayoría de los musulmanes creen que Dios lo elevó hacia sí y que volverá."}, "afterlife": {"title": "El más allá", "keywords": ["mas alla", "cielo", "infierno", "paraiso", "yanna", "morir", "muerte", "despues de morir"], "tanakh": "El Tanaj dice poco al respecto; habla del Sheol, el lugar de los muertos. El judaísmo posterior desarrolló la creencia en el Olam Ha-Ba (el Mundo Venidero) y la resurrección de los muertos, poniendo el énfasis en cómo vivir esta vida.", "bible": "Vida eterna con Dios en el cielo para quienes se salvan por medio de Jesús, y separación de Dios en el infierno. Los católicos creen además en el purgatorio, una purificación final antes del cielo.", "quran": "Después del Día del Juicio, las personas van al Paraíso (Yanna), descrito como jardines con ríos, o al Infierno (Yahannam), según su fe y sus obras y por la misericordia de Dios."}, "worship": {"title": "La oración y el culto", "keywords": ["orar", "rezar", "oracion", "culto", "~sinagoga", "~iglesia", "~mezquita", "comunion", "misa"], "tanakh": "Tradicionalmente los judíos rezan tres veces al día (mañana, tarde y noche), mirando hacia Jerusalén, y se reúnen en las sinagogas, sobre todo en Shabat.", "bible": "Los cristianos se reúnen en las iglesias, normalmente el domingo, para un culto con lecturas bíblicas, oración, cantos y comunión. El Padre Nuestro lo comparten casi todos los cristianos.", "quran": "Los musulmanes rezan cinco veces al día (salat) mirando hacia la Kaaba en La Meca, con movimientos fijos de estar de pie, inclinarse y postrarse, y se reúnen en las mezquitas para la oración del viernes (yumu'a)."}}, "fallback": {"title": "Pregúntame sobre…", "answer": ["La arena todavía no sabe responder a eso."]}, "prefixes": []},
+  he: {"ui": {"askTitle": "שאלו את החול", "askPlaceholder": "שאלו כל שאלה, למשל: איך הביבליה והקוראן רואים את ישו?", "askButton": "שאלה", "smooth": "שהרוח תחליק את החול", "book.tanakh": "תנ״ך", "book.bible": "כתבי הקודש הנוצריים", "book.quran": "קוראן", "short.tanakh": "התנ״ך", "short.bible": "הביבליה הנוצרית", "short.quran": "הקוראן", "faith.tanakh": "יהדות", "faith.bible": "נצרות", "faith.quran": "אסלאם", "vs": "מול", "opening": "נפתח…", "turning": "מדפדפים…", "loadError": "לא ניתן היה לטעון את הדף הזה.", "checkConnection": "בדקו את החיבור לאינטרנט ונסו שוב.", "tooFast": "קוראים מהר מדי: חכו כמה שניות ונסו שוב.", "previous": "הקודם", "next": "הבא", "chapter": "פרק", "sectionBook": "ספר", "sectionSurah": "סורה", "closeBook": "סגירת הספר", "original": "שפת המקור", "language": "שפה"}, "bookWords": {"tanakh": ["תנך", "תורה", "יהודי", "יהודים", "יהדות", "המקרא", "תלמוד"], "bible": ["ביבליה", "ברית החדשה", "הברית החדשה", "ברית הישנה", "אוונגליון", "בשורה", "נוצרי", "נצרות", "נוצרים"], "quran": ["קוראן", "קוראנ", "אסלאם", "איסלאם", "מוסלמי", "מוסלמים"], "hebrewBible": ["המקרא העברי"]}, "topics": {"profile": {"title": "על הספר", "keywords": ["~מה זה", "~ספר לי על", "~תאר", "~הסבר", "~על"], "tanakh": "התנ״ך הוא המקרא העברי, כתבי הקודש של היהדות: 24 ספרים בשלושה חלקים, תורה, נביאים וכתובים. הוא מספר על הבריאה, על בריתו של אלוהים עם אברהם ועם עם ישראל, על יציאת מצרים, על מתן התורה בסיני, על המלכים, על גלות בבל ועל שיבת ציון. הוא נכתב ברובו בעברית במשך מאות שנים רבות.", "bible": "לביבליה הנוצרית שני חלקים. הברית הישנה מכילה את כתבי הקודש העבריים (39 ספרים לפי המניין הפרוטסטנטי), והברית החדשה (27 ספרים שנכתבו ביוונית במאה הראשונה לספירה) מספרת על חייו, מותו ותחייתו של ישו ועל הכנסייה הראשונה. בביבליות האורתודוקסיות המזרחיות 76 ספרים, בקתוליות 73 ובפרוטסטנטיות 66; ההבדל הוא בברית הישנה.", "quran": "הקוראן הוא ספר הקודש של האסלאם: 114 סורות (פרקים) ו־6,236 פסוקים בערבית. המוסלמים מאמינים שהוא דבר האל שנגלה לנביא מוחמד באמצעות המלאך גבריאל בין השנים 610 ל־632 לספירה. הוא קורא לעבוד אל אחד, מספר מחדש את סיפורי הנביאים הקודמים ונותן הדרכה לחיים."}, "differences": {"title": "במה הספרים שונים", "keywords": ["הבדל", "שונה", "שונים", "נבדל", "~השווא", "~ניגוד"], "shared": "שלושתם עובדים את אלוהי אברהם וחולקים דמויות רבות, כמו אדם, נח, אברהם, משה ודוד. הם שונים במי שמדבר, בסיפור שהם מספרים ובהתגלות שהם רואים בה את האחרונה.", "tanakh": "בעיקר סיפור, חוק, שירה ונבואה שכתבו בני אדם על אלוהים, ומספרים סיפור ארוך אחד של עם ישראל. נכתב במשך כאלף שנה. היהדות אינה מקבלת את הברית החדשה או את הקוראן ככתבי קודש.", "bible": "היא שומרת את כתבי הקודש העבריים כברית הישנה ומוסיפה את הברית החדשה על ישו, שהנוצרים רואים בו את התגשמות הכתובים האלה. הברית החדשה נכתבה בתוך כחמישים שנה וכוללת בשורות, ספר היסטוריה (מעשי השליחים), איגרות ונבואה (ההתגלות).", "quran": "הוא מדבר כמעט כולו בקולו של האל הפונה אל מוחמד ואל האנושות, לעיתים קרובות בלשון ״אנו״. הוא מספר בקצרה את סיפורי הנביאים הקודמים, כלקחים, ולא לפי סדר היסטורי. הוא מכיר בתורה, בתהלים ובבשורה כהתגלויות קודמות, אך מלמד שהקוראן הוא ההתגלות האחרונה והשמורה. נגלה במשך 23 שנה."}, "jesus": {"title": "ישו", "keywords": ["~ישו", "~ישוע", "על ישו", "את ישו", "המשיח הנוצרי", "עיסא", "בן האלוהים", "צליבה", "נצלב", "צלב"], "tanakh": "ישו אינו מופיע בתנ״ך. היהדות רואה בו בדרך כלל מורה יהודי מן המאה הראשונה, לא המשיח ולא אל.", "bible": "ישו הוא בן האלוהים והמשיח, שנולד ממרים הבתולה, לימד, ריפא, מת בצליבה בעבור חטאי העולם וקם מן המתים.", "quran": "ישו (עיסא) הוא מגדולי הנביאים והמשיח, שנולד ממרים הבתולה ועשה ניסים. הוא אינו אל, והקוראן (4:157) אומר שהוא לא נהרג ולא נצלב; רוב המוסלמים מאמינים שהאל העלה אותו אליו ושהוא ישוב."}, "afterlife": {"title": "העולם הבא", "keywords": ["העולם הבא", "גן עדן", "גיהנום", "שמיים", "ג׳נה", "למות", "מוות", "אחרי המוות"], "tanakh": "התנ״ך אומר על כך מעט; הוא מדבר על השאול, מקום המתים. היהדות המאוחרת יותר פיתחה את האמונה בעולם הבא ובתחיית המתים, תוך הדגשה של איך לחיות את החיים האלה.", "bible": "חיי נצח עם האל בשמיים למי שנושעו באמצעות ישו, והיפרדות מן האל בגיהנום. הקתולים מאמינים גם בכור המצרף, טיהור אחרון לפני השמיים.", "quran": "אחרי יום הדין בני האדם הולכים לגן עדן (ג׳נה), המתואר כגנים שנהרות זורמים בהם, או לגיהנום (ג׳הנם), לפי אמונתם ומעשיהם וברחמי האל."}, "worship": {"title": "תפילה ועבודת האל", "keywords": ["להתפלל", "תפילה", "תפילות", "עבודת", "~בית כנסת", "~כנסייה", "~מסגד", "מיסה", "סעודת האדון"], "tanakh": "יהודים מתפללים במסורת שלוש פעמים ביום (שחרית, מנחה וערבית), כשפניהם לירושלים, ומתכנסים בבתי כנסת, במיוחד בשבת.", "bible": "הנוצרים מתכנסים בכנסיות, בדרך כלל ביום ראשון, לפולחן הכולל קריאה בביבליה, תפילה, שירה וסעודת האדון. תפילת האדון משותפת כמעט לכל הנוצרים.", "quran": "המוסלמים מתפללים חמש פעמים ביום (צלאת) כשפניהם אל הכעבה במכה, בתנועות קבועות של עמידה, כריעה והשתחוויה, ומתכנסים במסגדים לתפילת יום השישי (ג׳ומעה)."}}, "fallback": {"title": "שאלו אותי על…", "answer": ["החול עוד לא יודע לענות על זה."]}, "prefixes": ["וה", "וב", "ול", "ומ", "וש", "שה", "שב", "של", "מה", "בה", "לה", "כש", "ה", "ב", "ו", "ל", "מ", "ש", "כ"]},
+};
+
+let currentLang = 'en';
+let pack = null;                       // the chosen language's pack (null for English)
+const langInfo = () => LANGS.find((l) => l.code === currentLang);
+
+function setLanguage(code) {
+  if (!LANGS.some((l) => l.code === code)) code = 'en';      // unknown codes fall back to English
+  currentLang = code;
+  pack = PACKS[code] ?? null;
+}
+
+const fill = (text, vars = {}) => String(text).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+
+/** Page text for a key in the current language, falling back to English, then to the key itself. */
+function t(key, vars) {
+  return fill(pack?.ui?.[key] ?? UI[key] ?? key, vars);
+}
+
+/** Translated content, e.g. tr('topics', 'jesus', 'bible', englishText); the English text when there's none. */
+function tr(group, id, field, english) {
+  const value = pack?.[group]?.[id]?.[field];
+  return value === undefined || value === '' ? english : value;
+}
+```
+
+```js books
+// Tables of contents, copied from the real src/books.js.
+// Tanakh: [name, chapters] in the Jewish order (Torah, Prophets, Writings). Names match Sefaria's API.
+const TANAKH = [
+  ["Genesis", 50], ["Exodus", 40], ["Leviticus", 27], ["Numbers", 36], ["Deuteronomy", 34], ["Joshua", 24],
+  ["Judges", 21], ["I Samuel", 31], ["II Samuel", 24], ["I Kings", 22], ["II Kings", 25], ["Isaiah", 66],
+  ["Jeremiah", 52], ["Ezekiel", 48], ["Hosea", 14], ["Joel", 4], ["Amos", 9], ["Obadiah", 1],
+  ["Jonah", 4], ["Micah", 7], ["Nahum", 3], ["Habakkuk", 3], ["Zephaniah", 3], ["Haggai", 2],
+  ["Zechariah", 14], ["Malachi", 3], ["Psalms", 150], ["Proverbs", 31], ["Job", 42], ["Song of Songs", 8],
+  ["Ruth", 4], ["Lamentations", 5], ["Ecclesiastes", 12], ["Esther", 10], ["Daniel", 12], ["Ezra", 10],
+  ["Nehemiah", 13], ["I Chronicles", 29], ["II Chronicles", 36],
+];
+
+// Eastern Orthodox Bible: [id for bible-api.com, chapters, label]. The id is what the API understands; the label is what readers see.
+const BIBLE = [
+  ["Genesis", 50], ["Exodus", 40], ["Leviticus", 27], ["Numbers", 36], ["Deuteronomy", 34],
+  ["Joshua", 24], ["Judges", 21], ["Ruth", 4], ["1 Samuel", 31, "1 Kingdoms (1 Samuel)"], ["2 Samuel", 24, "2 Kingdoms (2 Samuel)"],
+  ["1 Kings", 22, "3 Kingdoms (1 Kings)"], ["2 Kings", 25, "4 Kingdoms (2 Kings)"], ["1 Chronicles", 29], ["2 Chronicles", 36], ["Prayer of Manasses", 1, "Prayer of Manasseh"],
+  ["1 Esdras", 9], ["Ezra", 10, "2 Esdras (Ezra)"], ["Nehemiah", 13], ["Tobit", 14], ["Judith", 16],
+  ["Esther", 10], ["1 Maccabees", 16], ["2 Maccabees", 15], ["3 Maccabees", 7], ["Psalms", 150],
+  ["Job", 42], ["Proverbs", 31], ["Ecclesiastes", 12], ["Song of Solomon", 8, "Song of Songs"], ["Wisdom", 19, "Wisdom of Solomon"],
+  ["Sirach", 51], ["Hosea", 14], ["Amos", 9], ["Micah", 7], ["Joel", 3],
+  ["Obadiah", 1], ["Jonah", 4], ["Nahum", 3], ["Habakkuk", 3], ["Zephaniah", 3],
+  ["Haggai", 2], ["Zechariah", 14], ["Malachi", 4], ["Isaiah", 66], ["Jeremiah", 52],
+  ["Baruch", 5], ["Lamentations", 5], ["Ezekiel", 48], ["Daniel", 12], ["sus", 1, "Susanna"],
+  ["Bel and the Dragon", 1], ["4 Maccabees", 18, "4 Maccabees (appendix)"], ["Matthew", 28], ["Mark", 16], ["Luke", 24],
+  ["John", 21], ["Acts", 28], ["Romans", 16], ["1 Corinthians", 16], ["2 Corinthians", 13],
+  ["Galatians", 6], ["Ephesians", 6], ["Philippians", 4], ["Colossians", 4], ["1 Thessalonians", 5],
+  ["2 Thessalonians", 3], ["1 Timothy", 6], ["2 Timothy", 4], ["Titus", 3], ["Philemon", 1],
+  ["Hebrews", 13], ["James", 5], ["1 Peter", 5], ["2 Peter", 3], ["1 John", 5],
+  ["2 John", 1], ["3 John", 1], ["Jude", 1], ["Revelation", 22],
+];
+
+// Every API call goes through here, so a failed request always becomes a readable error
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(res.status === 429 ? t('tooFast') : t('loadError'));
+  return res.json();
+}
+
+// Sefaria returns light HTML (footnotes, <big>, <br>); keep plain text only
+function clean(html) {
+  return String(html)
+    .replace(/<sup[^>]*>.*?<\/sup>/g, '')
+    .replace(/<i class="footnote">.*?<\/i>/g, '')
+    .replace(/<br\s*\/?>/g, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&thinsp;/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const JPS = 'english|The Holy Scriptures: A New Translation (JPS 1917)';
+
+const BOOKS = {
+  tanakh: {
+    sectionWord: 'sectionBook',
+    sections: TANAKH.map(([name, chapters]) => ({ id: name, label: name, chapters })),
+    // Every load returns the same shape: [{ n, text, original, dir }]
+    async load(section, chapter) {
+      const ref = encodeURIComponent(`${section}.${chapter}`);
+      const data = await fetchJson(`https://www.sefaria.org/api/v3/texts/${ref}?version=${encodeURIComponent(JPS)}&version=hebrew`);
+      const hebrew = data.versions.find((x) => x.actualLanguage === 'he' || x.language === 'he')?.text ?? [];
+      const english = data.versions.find((x) => x.actualLanguage !== 'he' && x.language !== 'he')?.text ?? [];
+      return english.map((text, i) => ({ n: i + 1, text: clean(text), original: clean(hebrew[i] ?? ''), dir: 'rtl' }));
+    },
+  },
+  bible: {
+    sectionWord: 'sectionBook',
+    sections: BIBLE.map(([id, chapters, label = id]) => ({ id, label, chapters })),
+    async load(section, chapter) {
+      const data = await fetchJson(`https://bible-api.com/${encodeURIComponent(`${section} ${chapter}`)}?translation=web`);
+      return data.verses.map((x) => ({ n: x.verse, text: x.text.replace(/\s+/g, ' ').trim() }));
+    },
+  },
+  quran: {
+    sectionWord: 'sectionSurah',
+    sections: null,                 // the 114 surahs are listed by the API, the first time the book is opened
+    async loadSections() {
+      const data = await fetchJson('https://api.alquran.cloud/v1/surah');
+      return data.data.map((s) => ({ id: s.number, label: `${s.number}. ${s.englishName} (${s.englishNameTranslation})`, chapters: 1 }));
+    },
+    // One request asks for two editions at once: the Arabic text and Pickthall's English
+    async load(section) {
+      const [arabic, english] = (await fetchJson(`https://api.alquran.cloud/v1/surah/${section}/editions/quran-uthmani,en.pickthall`)).data;
+      return english.ayahs.map((a, i) => ({ n: a.numberInSurah, text: a.text, original: arabic.ayahs[i].text.replace(/^\uFEFF/, ''), dir: 'rtl' }));
+    },
+  },
+};
+```
+
+```js reader
+let current = { key: null, section: null, chapter: 1 };
+const cache = new Map();            // chapter id → the promise of its verses
+
+async function openBook(key) {
+  const book = BOOKS[key];
+  current = { key, section: null, chapter: 1 };
+  $('reader').className = `reader ${key}`;
+  readerLabels();
+  $('verses').innerHTML = `<p class="loading">${t('opening')}</p>`;
+  $('reader').showModal();
+  if (!book.sections) {
+    try {
+      book.sections = await book.loadSections();
+    } catch (err) {
+      $('verses').innerHTML = `<p class="loading">${esc(err.message)} ${t('checkConnection')}</p>`;
+      return;
+    }
+  }
+  fillSections();
+  goTo(book.sections[0].id, 1);
+}
+
+// The title, faith and picker label (in the current language from step 9)
+function readerLabels() {
+  const key = current.key;
+  if (!key) return;
+  const book = BOOKS[key];
+  $('readerTitle').textContent = t(`book.${key}`);
+  $('readerFaith').textContent = t(`faith.${key}`);
+  $('sectionLabel').textContent = t(book.sectionWord);
+}
+
+function fillSections() {
+  const book = BOOKS[current.key];
+  $('section').innerHTML = book.sections.map((s) => `<option value="${esc(s.id)}">${esc(s.label)}</option>`).join('');
+}
+
+function fillChapters() {
+  const book = BOOKS[current.key];
+  const sec = book.sections.find((s) => String(s.id) === String(current.section));
+  $('chapterWrap').hidden = current.key === 'quran';          // a surah is read whole
+  $('chapter').innerHTML = Array.from({ length: sec.chapters }, (_, i) => `<option>${i + 1}</option>`).join('');
+  $('chapter').value = current.chapter;
+}
+
+async function goTo(section, chapter) {
+  const book = BOOKS[current.key];
+  current.section = section;
+  current.chapter = chapter;
+  $('section').value = section;
+  fillChapters();
+  const id = `${current.key}|${section}|${chapter}`;
+  $('verses').innerHTML = `<p class="loading">${t('turning')}</p>`;
+  try {
+    if (!cache.has(id)) cache.set(id, book.load(section, chapter));    // the promise, so two quick clicks share one request
+    const verses = await cache.get(id);
+    if (id !== `${current.key}|${current.section}|${current.chapter}`) return;   // the reader moved on while this loaded
+    const showOriginal = $('original').checked;
+    $('originalWrap').hidden = !verses.some((x) => x.original);
+    $('verses').innerHTML = verses.map((x) => `<p class="verse"><sup>${x.n}</sup> ${esc(x.text)}${showOriginal && x.original
+      ? `<span class="original" dir="${x.dir}" lang="${current.key === 'quran' ? 'ar' : 'he'}">${esc(x.original)}</span>` : ''}</p>`).join('');
+    $('verses').scrollTop = 0;
+  } catch (err) {
+    cache.delete(id);                // don't keep a failure: the next try asks again
+    if (id !== `${current.key}|${current.section}|${current.chapter}`) return;
+    $('verses').innerHTML = `<p class="loading">${esc(err.message)} ${t('checkConnection')}</p>`;
+  }
+}
+
+// Previous / next: past the last chapter of a book, go on to the next book (and back)
+function step(dir) {
+  const book = BOOKS[current.key];
+  const i = book.sections.findIndex((s) => String(s.id) === String(current.section));
+  let chapter = current.chapter + dir;
+  let index = i;
+  if (chapter < 1) {
+    index = i - 1;
+    if (index < 0) return;                       // already at the very beginning
+    chapter = book.sections[index].chapters;     // the last chapter of the book before
+  } else if (chapter > book.sections[i].chapters) {
+    index = i + 1;
+    if (index >= book.sections.length) return;  // already at the very end
+    chapter = 1;
+  }
+  goTo(book.sections[index].id, chapter);
+}
+```
+
+```js ask
+const BOOK_KEYS = ['tanakh', 'bible', 'quran'];
+
+// One spelling for words people write several ways
+const SPELLINGS = [
+  [/qur['’ʾ]?an|koran|coran/g, 'quran'],
+  [/mohammed|mohammad|muhammed|mohamed/g, 'muhammad'],
+  [/['’ʾʿ]/g, ''],                    // what's → whats
+];
+
+/** Lowercase, no accents or vowel marks, one spelling, only letters, digits and single spaces, padded with spaces. */
+function normalize(text) {
+  let s = String(text).toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  for (const [pattern, replacement] of SPELLINGS) s = s.replace(pattern, replacement);
+  return ` ${s.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()} `;
+}
+
+// Light stemming: enough to match plurals and verb forms ("prophets", "praying" → "prophet", "pray")
+function stemOnce(word) {
+  if (word.length <= 4 || !/^[a-z0-9]+$/.test(word)) return word;
+  if (word.endsWith('ies')) return word.slice(0, -3) + 'y';
+  if (word.endsWith('ing') && word.length > 5) return word.slice(0, -3);
+  if (word.endsWith('ed') && word.length > 5) return word.slice(0, -2);
+  if (word.endsWith('es') && /(ch|sh|x|ss)es$/.test(word)) return word.slice(0, -2);
+  if (word.endsWith('s') && !word.endsWith('ss') && !word.endsWith('us')) return word.slice(0, -1);
+  if (word.endsWith('e')) return word.slice(0, -1);
+  return word;
+}
+function stem(word) {
+  for (let next = stemOnce(word); next !== word; next = stemOnce(word)) word = next;   // miracles → miracle → miracl
+  return word;
+}
+const stemText = (normalized) => ` ${normalized.trim().split(' ').map(stem).join(' ')} `;
+
+// Hebrew attaches small words to the front of the next one ("בתורה" = "in the Torah"): try the word without them too
+const wordForms = (word) => [word, ...(pack?.prefixes ?? []).filter((p) => word.startsWith(p) && word.length > p.length + 1).map((p) => word.slice(p.length))];
+
+/** Does the question contain words that start with this phrase's words? ("profet" matches "profetas"; "=isa" must be exact) */
+function startsWords(q, phrase) {
+  const exact = phrase.startsWith('=');
+  const words = q.trim().split(' ');
+  const parts = normalize(exact ? phrase.slice(1) : phrase).trim().split(' ');
+  if (!parts[0]) return false;
+  const fits = (word, part) => wordForms(word).some((w) => (exact ? w === part : w.startsWith(part)));
+  for (let i = 0; i + parts.length <= words.length; i++) {
+    if (parts.every((p, j) => fits(words[i + j], p))) return true;
+  }
+  return false;
+}
+
+// Keywords are prepared once: normalized, stemmed, and worth more the more words they have. Weak ones ("~") are worth 1.
+const PREPARED = TOPICS.map((topic) => ({
+  topic,
+  keywords: topic.keywords.map((k) => {
+    const weak = k.startsWith('~');
+    const phrase = stemText(normalize(weak ? k.slice(1) : k));
+    return { phrase, weak, points: weak ? 1 : phrase.trim().split(' ').length + 1 };
+  }),
+}));
+
+/** Scores every topic. Longer phrases count more, and all the weak words together count 1 point. */
+function rank(question) {
+  const q = stemText(normalize(question));
+  const plain = normalize(question);
+  return PREPARED.map(({ topic, keywords }) => {
+    let score = 0, weakHit = 0;
+    for (const k of keywords) {
+      if (!q.includes(k.phrase)) continue;
+      if (k.weak) weakHit = 1;
+      else score += k.points;
+    }
+    // Keywords in the current language, written as word beginnings
+    for (const k of pack?.topics?.[topic.id]?.keywords ?? []) {
+      const weak = k.startsWith('~');
+      const phrase = weak ? k.slice(1) : k;
+      if (!startsWords(plain, phrase)) continue;
+      if (weak) weakHit = 1;
+      else score += normalize(phrase.replace(/^=/, '')).trim().split(' ').length + 1;
+    }
+    return { topic, score: score + weakHit };
+  }).filter((r) => r.score > 0).sort((a, b) => b.score - a.score);     // sort is stable: earlier topics win ties
+}
+
+// Words that name a book or its faith. "hebrew bible" is removed before looking for "bible".
+const BOOK_WORDS = {
+  tanakh: ['tanakh', 'tanach', 'torah', 'hebrew bible', 'hebrew scriptures', 'jewish', 'jews', 'jew', 'judaism', 'talmud'],
+  bible: ['bible', 'new testament', 'old testament', 'gospel', 'gospels', 'christian', 'christians', 'christianity'],
+  quran: ['quran', 'islam', 'islamic', 'muslim', 'muslims'],
+};
+
+function findBooks(question) {
+  let q = normalize(question);
+  const found = [];
+  for (const book of BOOK_KEYS) {
+    if (BOOK_WORDS[book].some((w) => q.includes(` ${w} `)) || (pack?.bookWords?.[book] ?? []).some((w) => startsWords(q, w))) found.push(book);
+    if (book === 'tanakh') {
+      q = q.replace(/ hebrew (bible|scriptures) /g, ' ');
+      for (const w of pack?.bookWords?.hebrewBible ?? []) q = q.split(` ${normalize(w).trim()} `).join(' ');
+    }
+  }
+  return found;
+}
+
+const label = (kind, book) => t(`${kind === 'book' ? 'short' : 'faith'}.${book}`);
+
+/** The paragraphs for a topic, for some or all of the books */
+function compose(topic, books = BOOK_KEYS) {
+  const kind = topic.kind ?? 'faith';
+  const text = (field) => tr('topics', topic.id, field, topic[field]);
+  const answer = [];
+  if (topic.shared && books.length > 1) answer.push(text('shared'));
+  for (const book of books) answer.push(`${label(kind, book)}: ${text(book)}`);
+  if (topic.note) answer.push(text('note'));
+  const names = books.map((b) => label(kind, b));
+  const title = books.length === BOOK_KEYS.length ? text('title')
+    : books.length === 1 ? `${text('title')} · ${names[0]}`
+    : `${text('title')} · ${names.join(` ${t('vs')} `)}`;
+  return { title, answer };
+}
+
+const FALLBACK = {
+  title: 'Ask me about…',
+  answer: ["The sand doesn't know that one yet.", 'Try a question about how old the books are, Jesus, creation, the afterlife, prayer or fasting. Name one or two books to compare just those.'],
+};
+function fallback() {
+  return pack?.fallback ? { title: pack.fallback.title, answer: pack.fallback.answer } : FALLBACK;
+}
+
+const PROFILE = TOPICS.find((x) => x.id === 'profile');
+const DIFFERENCES = TOPICS.find((x) => x.id === 'differences');
+
+function answer(question) {
+  if (normalize(question).trim().length < 2) return fallback();
+  const named = findBooks(question);
+  const books = named.length ? named : BOOK_KEYS;
+  const [best] = rank(question);
+  // "Tell me about the Torah", "What is Islam?": no other topic, so describe the book (or how the named ones differ)
+  if ((!best || best.topic.id === 'profile') && named.length) {
+    return named.length > 1 ? compose(DIFFERENCES, books) : compose(PROFILE, books);
+  }
+  if (!best || best.topic.id === 'profile') return fallback();
+  return compose(best.topic, books);
+}
+```
+
+```js sand
+// Writes text into the sand on a <canvas>: letters appear as grooves pressed into the dune, one line at a time.
+class SandWriter {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.frame = null;
+    this.grains = [];
+  }
+
+  // Break paragraphs into lines that fit the width, with a blank line between paragraphs
+  wrap(paragraphs, font, maxWidth) {
+    const ctx = this.ctx;
+    ctx.font = font;
+    const lines = [];
+    paragraphs.forEach((p, i) => {
+      let line = '';
+      for (const word of p.split(' ')) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
+        else line = test;
+      }
+      lines.push(line);
+      if (i < paragraphs.length - 1) lines.push('');
+    });
+    return lines;
+  }
+
+  write(title, paragraphs, { reducedMotion = false, dir = 'ltr' } = {}) {
+    const rtl = dir === 'rtl';              // Hebrew and Arabic are written from the right
+    cancelAnimationFrame(this.frame);
+    const dpr = window.devicePixelRatio || 1;
+    const width = this.canvas.clientWidth;
+    const size = width < 500 ? 17 : 21;
+    const font = `${size}px "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive`;
+    const titleFont = `bold ${size + 8}px "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive`;
+    const pad = 24, lineH = size * 1.55;
+    const lines = this.wrap(paragraphs, font, width - pad * 2);
+    const titleLines = this.wrap([title], titleFont, width - pad * 2);
+    const titleH = (size + 8) * 1.6 + (titleLines.length - 1) * (size + 8) * 1.3;
+    const height = pad * 2 + titleH + lines.length * lineH;
+    // Sharp on high-density screens: more canvas pixels than CSS pixels, then scale the drawing up to match
+    this.canvas.style.height = `${height}px`;
+    this.canvas.width = width * dpr;
+    this.canvas.height = height * dpr;
+    const ctx = this.ctx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Each line is a job that is revealed from its start, one after another
+    const x = rtl ? width - pad : pad;
+    const jobs = titleLines.map((text, i) => ({ text, font: titleFont, x, y: pad + size + 6 + i * (size + 8) * 1.3 }));
+    lines.forEach((text, i) => jobs.push({ text, font, x, y: pad + titleH + (i + 0.8) * lineH }));
+    ctx.direction = rtl ? 'rtl' : 'ltr';
+    ctx.textAlign = rtl ? 'right' : 'left';
+    for (const job of jobs) { ctx.font = job.font; job.width = ctx.measureText(job.text).width; }
+    // 900 px per second, but faster for long answers so none takes more than about 9 seconds
+    const textWidth = jobs.reduce((sum, job) => sum + job.width, 0);
+    const speed = Math.max(900, textWidth / (9 - jobs.length * 0.06));
+    let offset = 0;
+    for (const job of jobs) {
+      job.start = offset;
+      offset += job.width / speed * 1000 + 60;
+    }
+    const total = offset;
+    const start = performance.now();
+    this.grains = [];
+
+    // A groove: a light edge just below, the dark letters on top, so they look pressed in
+    const groove = (job, upTo) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rtl ? job.x - upTo - 4 : job.x - 4, job.y - 60, upTo + 8, 90);
+      ctx.clip();
+      ctx.font = job.font;
+      ctx.fillStyle = 'rgba(255, 240, 205, 0.85)';
+      ctx.fillText(job.text, job.x + 1, job.y + 1.5);
+      ctx.fillStyle = 'rgba(120, 72, 28, 0.9)';
+      ctx.fillText(job.text, job.x, job.y);
+      ctx.restore();
+    };
+
+    const draw = (now) => {
+      const t = reducedMotion ? total : now - start;
+      ctx.clearRect(0, 0, width, height);
+      for (const job of jobs) {
+        const elapsed = t - job.start;
+        if (elapsed <= 0) continue;
+        const shown = Math.min(job.width, (elapsed / 1000) * speed);
+        groove(job, shown);
+        if (shown < job.width && !reducedMotion) {
+          // the "finger" throws a few grains up and back
+          for (let k = 0; k < 3; k++) {
+            this.grains.push({ x: rtl ? job.x - shown : job.x + shown, y: job.y - 6, vx: (rtl ? 1 : -1) * Math.random() * 1.6, vy: -Math.random() * 2.2, life: 1 });
+          }
+        }
+      }
+      for (const g of this.grains) {
+        g.x += g.vx; g.y += g.vy; g.vy += 0.12; g.life -= 0.03;          // fly, fall and fade
+        ctx.fillStyle = `rgba(150, 100, 45, ${Math.max(g.life, 0)})`;
+        ctx.fillRect(g.x, g.y, 1.6, 1.6);
+      }
+      this.grains = this.grains.filter((g) => g.life > 0);
+      if (t < total || this.grains.length) this.frame = requestAnimationFrame(draw);
+    };
+    this.frame = requestAnimationFrame(draw);
+  }
+
+  // The wind sweeps the writing away: a copy of the canvas slides right and fades out
+  smooth(done, reducedMotion = false) {
+    cancelAnimationFrame(this.frame);
+    const { canvas, ctx } = this;
+    if (reducedMotion) { ctx.clearRect(0, 0, canvas.width, canvas.height); done?.(); return; }
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    copy.getContext('2d').drawImage(canvas, 0, 0);
+    let step = 0;
+    const blow = () => {
+      step++;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.globalAlpha = Math.max(0, 1 - step / 25);
+      ctx.drawImage(copy, step * 6, 0);
+      ctx.globalAlpha = 1;
+      if (step < 25) this.frame = requestAnimationFrame(blow);
+      else { ctx.clearRect(0, 0, canvas.width, canvas.height); done?.(); }
+    };
+    blow();
+  }
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ---------- Reader ----------
+document.querySelectorAll('.book').forEach((el) => el.addEventListener('click', () => openBook(el.dataset.book)));
+$('close').onclick = () => $('reader').close();
+// A click on the dark backdrop lands on the dialog itself: close it
+$('reader').addEventListener('click', (e) => { if (e.target === $('reader')) $('reader').close(); });
+$('section').onchange = (e) => goTo(e.target.value, 1);
+$('chapter').onchange = (e) => goTo(current.section, Number(e.target.value));
+$('prev').onclick = () => step(-1);
+$('next').onclick = () => step(1);
+$('original').onchange = () => goTo(current.section, current.chapter);
+
+// ---------- Ask the sand ----------
+const writer = new SandWriter($('sand'));
+let lastTopic = null;
+let lastQuestion = null;
+
+function ask(question) {
+  const topic = answer(question);
+  lastTopic = topic;
+  lastQuestion = question;
+  $('spoken').textContent = `${topic.title}. ${topic.answer.join(' ')}`;     // screen readers get the answer as text
+  $('sandWrap').hidden = false;                    // visible first, so the canvas has a width to measure
+  writer.write(topic.title, topic.answer, { reducedMotion, dir: langInfo().dir });
+  $('sandWrap').scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+}
+
+$('askForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = $('question').value.trim();
+  if (q) ask(q);
+});
+
+// Redraw at the new width when the window is resized or a phone is turned (no animation the second time)
+let resizeTimer;
+addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (lastTopic) writer.write(lastTopic.title, lastTopic.answer, { reducedMotion: true, dir: langInfo().dir }); }, 200);
+});
+
+$('smooth').onclick = () => {
+  lastTopic = null;
+  lastQuestion = null;
+  writer.smooth(() => { $('sandWrap').hidden = true; }, reducedMotion);
+};
+
+// ---------- Language ----------
+const PREF = 'superbook-language';
+
+function applyLanguage() {
+  const info = langInfo();
+  document.documentElement.lang = info.code;
+  document.documentElement.dir = info.dir;          // Hebrew turns the whole layout right to left
+  document.querySelectorAll('[data-t]').forEach((el) => { el.textContent = t(el.dataset.t); });
+  $('question').placeholder = t('askPlaceholder');
+  $('close').setAttribute('aria-label', t('closeBook'));
+  readerLabels();
+  if (lastQuestion) ask(lastQuestion);              // rewrite the answer in the new language
+}
+
+$('lang').innerHTML = LANGS.map((l) => `<option value="${l.code}">${l.name}</option>`).join('');
+$('lang').onchange = (e) => {
+  setLanguage(e.target.value);
+  try { localStorage.setItem(PREF, currentLang); } catch { /* storage can be blocked: the choice just isn't remembered */ }
+  applyLanguage();
+};
+
+let saved = null;
+try { saved = localStorage.getItem(PREF); } catch { /* blocked, e.g. in this editor's preview */ }
+setLanguage(saved || 'en');
+$('lang').value = currentLang;
+applyLanguage();
+```
+
+## Step: How the real project is built
+time: 10
+kind: read
+
+You've built the core of [SuperBook](https://theoyanvno.github.io/SuperBook/). The real one is plain JavaScript split into **ES modules**, with no framework and no build step:
+
+| File | What it does |
+|---|---|
+| `src/books.js` | the tables of contents and the API calls, including translations in other languages from getbible.net and Sefaria |
+| `src/topics.js` | all 76 topics, each answered for the three books |
+| `src/answers.js` | normalizing, stemming, finding the books, scoring and composing: what you wrote in session 3 |
+| `src/passages.js`, `src/study.js` | historical context for 20 passages, and study questions for 300 chapters and surahs |
+| `src/sand.js` | the `SandWriter` class |
+| `src/music.js` | calm background music, generated live in the browser |
+| `src/i18n.js`, `src/text.js`, `src/lang/` | the languages: page text, fallbacks, and matching in eight languages |
+| `src/app.js` | the reader with its cache, the question form, and the page wiring |
+| `test/` | 29 tests run with `node --test` |
+
+**Modules.** Each file `export`s what others need and `import`s what it uses, so `answers.js` never touches the page and can be tested in Node:
+
+```js
+import { TOPICS } from './topics.js';
+import { PASSAGES, CONTEXT_WORDS } from './passages.js';
+import { findChapter, questionType, studyAnswer } from './study.js';
+```
+
+**Languages load on demand.** Each language is its own file, loaded the first time someone picks it, with a dynamic `import()`, so English readers never download the other seven:
+
+```js
+export async function setLanguage(code) {
+  if (!LANGS.some((l) => l.code === code)) code = 'en';
+  if (code !== 'en' && !packs[code]) packs[code] = (await import(`./lang/${code}.js`)).default;
+```
+
+**The same race guard you wrote** is in the real reader, with the language added to the chapter id, so switching language mid-load doesn't show the old language:
+
+```js
+if (id !== `${lang()}|${current.key}|${current.section}|${current.chapter}`) return;   // user moved on
+```
+
+**One difference.** The real `smooth()` slides a snapshot with `putImageData`, which ignores `globalAlpha`, so its writing slides away without fading; the version in this guide draws a copy with `drawImage`, which does fade.
+
+**Tests.** `npm test` checks that more than 120 sample English questions, and samples in every language, go to the right topic and books; that general words never outweigh specific ones; that every topic is answered for all three books; and that every language translates every page text, topic, passage, fact and study question.
+
 ## Finish
 
 ### What you learned
