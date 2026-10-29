@@ -1310,6 +1310,510 @@ $('askForm').addEventListener('submit', (e) => {
 });
 ```
 
+## Session: Writing in the sand
+
+## Step: Letters pressed into sand
+time: 20
+
+Now the answer is **written into the sand** on a `<canvas>`, line by line, as if by a finger.
+
+```svg A groove is two copies of the text, revealed by a growing clip
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 150" font-family="Comic Sans MS, cursive"><rect x="10" y="10" width="410" height="80" rx="8" fill="#e6c48a"/><text x="31" y="61.5" font-size="30" fill="rgba(255,240,205,.85)">Ask the sand</text><text x="30" y="60" font-size="30" fill="rgba(120,72,28,.9)">Ask the</text><rect x="148" y="24" width="2" height="48" fill="#b91c1c"/><g font-family="sans-serif" font-size="11" fill="#1f2937"><text x="16" y="110">1. light copy, 1 px right and 1.5 px down: the lit edge of the groove</text><text x="16" y="126">2. dark copy on top: the shadowed inside</text><text x="16" y="142">3. a clip rectangle grows each frame (red line), revealing the letters</text></g></svg>
+```
+
+**Wrapping.** A canvas doesn't wrap text, so `wrap()` does: it adds words to a line while `ctx.measureText(line).width` still fits, then starts a new line. Paragraphs get a blank line between them. The canvas's height is then set to fit every line.
+
+**Sharp on every screen.** A phone may have 3 screen pixels per CSS pixel (`devicePixelRatio`). The canvas gets that many more pixels (`canvas.width = width * dpr`), stays the same size on the page, and `ctx.setTransform(dpr, …)` scales all drawing up to match. Without this, text on a canvas looks blurry.
+
+**The groove.** Each line is drawn twice: a light copy 1 px right and 1.5 px down (the lit edge), then a dark copy on top (the shadowed inside). Together they look pressed in.
+
+**Writing it.** Each line is a **job** with a start time; one line starts when the line before it is finished. On every animation frame, `draw()` works out how many pixels of each line should be visible by now, and `ctx.clip()` limits drawing to a rectangle that wide. The writing speed is 900 px a second, but faster for long answers, so none takes more than about 9 seconds. `requestAnimationFrame(draw)` asks the browser to call `draw` again before the next screen refresh, until every line is written.
+
+**Screen readers** can't read a canvas, so the same answer goes into a visually hidden paragraph with `aria-live="polite"`, which is read out when it changes.
+
+The sand must be **visible before writing**: a hidden element has no width to measure. And when the window is resized, the answer is redrawn at the new width, all at once.
+
+### Try it
+
+Ask a question and watch it being written. Make the window narrower: the lines re-wrap.
+
+check: html | a canvas in the sand | /<canvas\s+id="sand"/
+check: js | a SandWriter class | /class\s+SandWriter/
+check: js | sharp on high-density screens | /devicePixelRatio/
+check: js | wrap lines to the width | /measureText\(/
+check: js | reveal each line with a clip | /ctx\.clip\(\)/
+check: js | one frame at a time | /requestAnimationFrame\(\s*draw\s*\)/
+
+quiz: Why draw each line twice, offset slightly?
+- [ ] To make it bolder
+- [x] A light copy below and a dark copy on top look like a groove pressed into the sand
+- [ ] Canvas text needs two passes
+why: Light from above: a lit lower edge and a shadowed inside.
+quiz: Why does the canvas get width × devicePixelRatio pixels?
+- [ ] To use less memory
+- [x] So it has one canvas pixel per screen pixel and stays sharp on high-density screens
+- [ ] Because CSS pixels are larger on desktops
+why: The page size stays the same; only the drawing gets more detail.
+
+```html page
+<div class="sky" aria-hidden="true"><div class="sun"></div><div class="dune far"></div><div class="dune near"></div></div>
+<header class="top">
+  <h1>SuperBook</h1>
+  <p class="tagline">Three sacred books of the Abrahamic faiths. Open a book to read it, or ask the sand a question.</p>
+</header>
+<main>
+  <div class="books">
+    <button class="book tanakh" data-book="tanakh">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,14 82,70 18,70"/><polygon points="50,86 18,30 82,30"/></svg>
+      <span class="title">Tanakh</span>
+      <span class="faith">Judaism</span>
+    </button>
+    <button class="book bible" data-book="bible">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><path d="M44 14h12v24h20v12H56v36H44V50H24V38h20z"/></svg>
+      <span class="title">Holy Bible</span>
+      <span class="faith">Christianity</span>
+    </button>
+    <button class="book quran" data-book="quran">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><rect x="27" y="27" width="46" height="46"/><rect x="27" y="27" width="46" height="46" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="9"/></svg>
+      <span class="title">Qur'an</span>
+      <span class="faith">Islam</span>
+    </button>
+  </div>
+  <form id="askForm" class="ask">
+    <label for="question">Ask the sand</label>
+    <div class="row">
+      <input id="question" autocomplete="off" placeholder="Ask anything, e.g. How do the Bible and the Qur'an see Jesus?">
+      <button>Ask</button>
+    </div>
+  </form>
+  <div id="sandWrap" class="sand-wrap" hidden>
+    <canvas id="sand"></canvas>
+    <p id="spoken" class="sr-only" aria-live="polite"></p>
+  </div>
+</main>
+<dialog id="reader" class="reader">
+  <header>
+    <div><h2 id="readerTitle"></h2><p id="readerFaith" class="muted"></p></div>
+    <button id="close" class="close" aria-label="Close book">✕</button>
+  </header>
+  <div class="pickers">
+    <label><span id="sectionLabel">Book</span> <select id="section"></select></label>
+    <label id="chapterWrap"><span>Chapter</span> <select id="chapter"></select></label>
+    <label id="originalWrap" class="check"><input type="checkbox" id="original" checked> <span>Original language</span></label>
+  </div>
+  <div id="verses" class="verses"></div>
+  <footer>
+    <button id="prev">← <span>Previous</span></button>
+    <button id="next"><span>Next</span> →</button>
+  </footer>
+</dialog>
+```
+
+```js sand
+// Writes text into the sand on a <canvas>: letters appear as grooves pressed into the dune, one line at a time.
+class SandWriter {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.frame = null;
+  }
+
+  // Break paragraphs into lines that fit the width, with a blank line between paragraphs
+  wrap(paragraphs, font, maxWidth) {
+    const ctx = this.ctx;
+    ctx.font = font;
+    const lines = [];
+    paragraphs.forEach((p, i) => {
+      let line = '';
+      for (const word of p.split(' ')) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
+        else line = test;
+      }
+      lines.push(line);
+      if (i < paragraphs.length - 1) lines.push('');
+    });
+    return lines;
+  }
+
+  write(title, paragraphs) {
+    cancelAnimationFrame(this.frame);
+    const dpr = window.devicePixelRatio || 1;
+    const width = this.canvas.clientWidth;
+    const size = width < 500 ? 17 : 21;
+    const font = `${size}px "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive`;
+    const titleFont = `bold ${size + 8}px "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive`;
+    const pad = 24, lineH = size * 1.55;
+    const lines = this.wrap(paragraphs, font, width - pad * 2);
+    const titleLines = this.wrap([title], titleFont, width - pad * 2);
+    const titleH = (size + 8) * 1.6 + (titleLines.length - 1) * (size + 8) * 1.3;
+    const height = pad * 2 + titleH + lines.length * lineH;
+    // Sharp on high-density screens: more canvas pixels than CSS pixels, then scale the drawing up to match
+    this.canvas.style.height = `${height}px`;
+    this.canvas.width = width * dpr;
+    this.canvas.height = height * dpr;
+    const ctx = this.ctx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Each line is a job that is revealed from its start, one after another
+    const x = pad;
+    const jobs = titleLines.map((text, i) => ({ text, font: titleFont, x, y: pad + size + 6 + i * (size + 8) * 1.3 }));
+    lines.forEach((text, i) => jobs.push({ text, font, x, y: pad + titleH + (i + 0.8) * lineH }));
+    for (const job of jobs) { ctx.font = job.font; job.width = ctx.measureText(job.text).width; }
+    // 900 px per second, but faster for long answers so none takes more than about 9 seconds
+    const textWidth = jobs.reduce((sum, job) => sum + job.width, 0);
+    const speed = Math.max(900, textWidth / (9 - jobs.length * 0.06));
+    let offset = 0;
+    for (const job of jobs) {
+      job.start = offset;
+      offset += job.width / speed * 1000 + 60;
+    }
+    const total = offset;
+    const start = performance.now();
+
+    // A groove: a light edge just below, the dark letters on top, so they look pressed in
+    const groove = (job, upTo) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(job.x - 4, job.y - 60, upTo + 8, 90);
+      ctx.clip();
+      ctx.font = job.font;
+      ctx.fillStyle = 'rgba(255, 240, 205, 0.85)';
+      ctx.fillText(job.text, job.x + 1, job.y + 1.5);
+      ctx.fillStyle = 'rgba(120, 72, 28, 0.9)';
+      ctx.fillText(job.text, job.x, job.y);
+      ctx.restore();
+    };
+
+    const draw = (now) => {
+      const t = now - start;
+      ctx.clearRect(0, 0, width, height);
+      for (const job of jobs) {
+        const elapsed = t - job.start;
+        if (elapsed <= 0) continue;
+        const shown = Math.min(job.width, (elapsed / 1000) * speed);
+        groove(job, shown);
+      }
+      if (t < total) this.frame = requestAnimationFrame(draw);
+    };
+    this.frame = requestAnimationFrame(draw);
+  }
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------- Reader ----------
+document.querySelectorAll('.book').forEach((el) => el.addEventListener('click', () => openBook(el.dataset.book)));
+$('close').onclick = () => $('reader').close();
+// A click on the dark backdrop lands on the dialog itself: close it
+$('reader').addEventListener('click', (e) => { if (e.target === $('reader')) $('reader').close(); });
+$('section').onchange = (e) => goTo(e.target.value, 1);
+$('chapter').onchange = (e) => goTo(current.section, Number(e.target.value));
+$('prev').onclick = () => step(-1);
+$('next').onclick = () => step(1);
+$('original').onchange = () => goTo(current.section, current.chapter);
+
+// ---------- Ask the sand ----------
+const writer = new SandWriter($('sand'));
+let lastTopic = null;
+let lastQuestion = null;
+
+function ask(question) {
+  const topic = answer(question);
+  lastTopic = topic;
+  lastQuestion = question;
+  $('spoken').textContent = `${topic.title}. ${topic.answer.join(' ')}`;     // screen readers get the answer as text
+  $('sandWrap').hidden = false;                    // visible first, so the canvas has a width to measure
+  writer.write(topic.title, topic.answer);
+  $('sandWrap').scrollIntoView({ behavior: false ? 'auto' : 'smooth', block: 'start' });
+}
+
+$('askForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = $('question').value.trim();
+  if (q) ask(q);
+});
+
+// Redraw at the new width when the window is resized or a phone is turned (no animation the second time)
+let resizeTimer;
+addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (lastTopic) writer.write(lastTopic.title, lastTopic.answer); }, 200);
+});
+```
+
+## Step: Grains, wind and reduced motion
+time: 15
+
+Three finishing touches.
+
+**Flying grains.** While a line is being written, each frame adds three grains at the tip of the "finger", each with a random speed up and back. Every frame, each grain moves by its speed, gravity adds a little to its downward speed (`g.vy += 0.12`), and its `life` drops a little. The grain is drawn as a tiny square, fading with its life, and removed when its life runs out. The animation keeps running until the writing is done **and** the last grain has settled.
+
+**The wind.** *Let the wind smooth the sand* copies the canvas into a second, off-screen canvas. For 25 frames, it clears the sand and draws the copy a little further right and a little fainter (`globalAlpha`), so the writing blows away. Then the sand is hidden.
+
+**Reduced motion.** Some people turn off animations in their system settings, for comfort or because motion makes them unwell. `matchMedia('(prefers-reduced-motion: reduce)')` tells the page, and then:
+
+| | Normal | Reduced motion |
+|---|---|---|
+| writing | letter by letter | the whole answer at once (`t = total`) |
+| grains | yes | none |
+| wind | blows away | cleared at once |
+| scrolling to the answer | smooth | jumps |
+
+check: js | grains thrown by the finger | /this\.grains\.push\(/
+check: js | respect reduced motion | /prefers-reduced-motion/
+check: js | the wind smooths the sand | /smooth\(\s*done/
+check: html | a wind button | /id="smooth"/
+
+quiz: With reduced motion on, how does write() show the answer?
+- [ ] It doesn't show it
+- [x] It treats the time as already finished, so every line is drawn at once
+- [ ] It writes more slowly
+why: Same result, no motion.
+quiz: Why keep animating after the last line is written?
+- [ ] To use the CPU
+- [x] Grains thrown in the last frames are still flying and need to land
+- [ ] The canvas needs it
+why: The loop stops when the writing is done and no grains are left.
+
+```html page
+<div class="sky" aria-hidden="true"><div class="sun"></div><div class="dune far"></div><div class="dune near"></div></div>
+<header class="top">
+  <h1>SuperBook</h1>
+  <p class="tagline">Three sacred books of the Abrahamic faiths. Open a book to read it, or ask the sand a question.</p>
+</header>
+<main>
+  <div class="books">
+    <button class="book tanakh" data-book="tanakh">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,14 82,70 18,70"/><polygon points="50,86 18,30 82,30"/></svg>
+      <span class="title">Tanakh</span>
+      <span class="faith">Judaism</span>
+    </button>
+    <button class="book bible" data-book="bible">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><path d="M44 14h12v24h20v12H56v36H44V50H24V38h20z"/></svg>
+      <span class="title">Holy Bible</span>
+      <span class="faith">Christianity</span>
+    </button>
+    <button class="book quran" data-book="quran">
+      <svg class="symbol" viewBox="0 0 100 100" aria-hidden="true"><rect x="27" y="27" width="46" height="46"/><rect x="27" y="27" width="46" height="46" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="9"/></svg>
+      <span class="title">Qur'an</span>
+      <span class="faith">Islam</span>
+    </button>
+  </div>
+  <form id="askForm" class="ask">
+    <label for="question">Ask the sand</label>
+    <div class="row">
+      <input id="question" autocomplete="off" placeholder="Ask anything, e.g. How do the Bible and the Qur'an see Jesus?">
+      <button>Ask</button>
+    </div>
+  </form>
+  <div id="sandWrap" class="sand-wrap" hidden>
+    <canvas id="sand"></canvas>
+    <p id="spoken" class="sr-only" aria-live="polite"></p>
+    <button id="smooth" class="smooth" type="button">Let the wind smooth the sand</button>
+  </div>
+</main>
+<dialog id="reader" class="reader">
+  <header>
+    <div><h2 id="readerTitle"></h2><p id="readerFaith" class="muted"></p></div>
+    <button id="close" class="close" aria-label="Close book">✕</button>
+  </header>
+  <div class="pickers">
+    <label><span id="sectionLabel">Book</span> <select id="section"></select></label>
+    <label id="chapterWrap"><span>Chapter</span> <select id="chapter"></select></label>
+    <label id="originalWrap" class="check"><input type="checkbox" id="original" checked> <span>Original language</span></label>
+  </div>
+  <div id="verses" class="verses"></div>
+  <footer>
+    <button id="prev">← <span>Previous</span></button>
+    <button id="next"><span>Next</span> →</button>
+  </footer>
+</dialog>
+```
+
+```js sand
+// Writes text into the sand on a <canvas>: letters appear as grooves pressed into the dune, one line at a time.
+class SandWriter {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.frame = null;
+    this.grains = [];
+  }
+
+  // Break paragraphs into lines that fit the width, with a blank line between paragraphs
+  wrap(paragraphs, font, maxWidth) {
+    const ctx = this.ctx;
+    ctx.font = font;
+    const lines = [];
+    paragraphs.forEach((p, i) => {
+      let line = '';
+      for (const word of p.split(' ')) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
+        else line = test;
+      }
+      lines.push(line);
+      if (i < paragraphs.length - 1) lines.push('');
+    });
+    return lines;
+  }
+
+  write(title, paragraphs, { reducedMotion = false } = {}) {
+    cancelAnimationFrame(this.frame);
+    const dpr = window.devicePixelRatio || 1;
+    const width = this.canvas.clientWidth;
+    const size = width < 500 ? 17 : 21;
+    const font = `${size}px "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive`;
+    const titleFont = `bold ${size + 8}px "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive`;
+    const pad = 24, lineH = size * 1.55;
+    const lines = this.wrap(paragraphs, font, width - pad * 2);
+    const titleLines = this.wrap([title], titleFont, width - pad * 2);
+    const titleH = (size + 8) * 1.6 + (titleLines.length - 1) * (size + 8) * 1.3;
+    const height = pad * 2 + titleH + lines.length * lineH;
+    // Sharp on high-density screens: more canvas pixels than CSS pixels, then scale the drawing up to match
+    this.canvas.style.height = `${height}px`;
+    this.canvas.width = width * dpr;
+    this.canvas.height = height * dpr;
+    const ctx = this.ctx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Each line is a job that is revealed from its start, one after another
+    const x = pad;
+    const jobs = titleLines.map((text, i) => ({ text, font: titleFont, x, y: pad + size + 6 + i * (size + 8) * 1.3 }));
+    lines.forEach((text, i) => jobs.push({ text, font, x, y: pad + titleH + (i + 0.8) * lineH }));
+    for (const job of jobs) { ctx.font = job.font; job.width = ctx.measureText(job.text).width; }
+    // 900 px per second, but faster for long answers so none takes more than about 9 seconds
+    const textWidth = jobs.reduce((sum, job) => sum + job.width, 0);
+    const speed = Math.max(900, textWidth / (9 - jobs.length * 0.06));
+    let offset = 0;
+    for (const job of jobs) {
+      job.start = offset;
+      offset += job.width / speed * 1000 + 60;
+    }
+    const total = offset;
+    const start = performance.now();
+    this.grains = [];
+
+    // A groove: a light edge just below, the dark letters on top, so they look pressed in
+    const groove = (job, upTo) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(job.x - 4, job.y - 60, upTo + 8, 90);
+      ctx.clip();
+      ctx.font = job.font;
+      ctx.fillStyle = 'rgba(255, 240, 205, 0.85)';
+      ctx.fillText(job.text, job.x + 1, job.y + 1.5);
+      ctx.fillStyle = 'rgba(120, 72, 28, 0.9)';
+      ctx.fillText(job.text, job.x, job.y);
+      ctx.restore();
+    };
+
+    const draw = (now) => {
+      const t = reducedMotion ? total : now - start;
+      ctx.clearRect(0, 0, width, height);
+      for (const job of jobs) {
+        const elapsed = t - job.start;
+        if (elapsed <= 0) continue;
+        const shown = Math.min(job.width, (elapsed / 1000) * speed);
+        groove(job, shown);
+        if (shown < job.width && !reducedMotion) {
+          // the "finger" throws a few grains up and back
+          for (let k = 0; k < 3; k++) {
+            this.grains.push({ x: job.x + shown, y: job.y - 6, vx: -Math.random() * 1.6, vy: -Math.random() * 2.2, life: 1 });
+          }
+        }
+      }
+      for (const g of this.grains) {
+        g.x += g.vx; g.y += g.vy; g.vy += 0.12; g.life -= 0.03;          // fly, fall and fade
+        ctx.fillStyle = `rgba(150, 100, 45, ${Math.max(g.life, 0)})`;
+        ctx.fillRect(g.x, g.y, 1.6, 1.6);
+      }
+      this.grains = this.grains.filter((g) => g.life > 0);
+      if (t < total || this.grains.length) this.frame = requestAnimationFrame(draw);
+    };
+    this.frame = requestAnimationFrame(draw);
+  }
+
+  // The wind sweeps the writing away: a copy of the canvas slides right and fades out
+  smooth(done, reducedMotion = false) {
+    cancelAnimationFrame(this.frame);
+    const { canvas, ctx } = this;
+    if (reducedMotion) { ctx.clearRect(0, 0, canvas.width, canvas.height); done?.(); return; }
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    copy.getContext('2d').drawImage(canvas, 0, 0);
+    let step = 0;
+    const blow = () => {
+      step++;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.globalAlpha = Math.max(0, 1 - step / 25);
+      ctx.drawImage(copy, step * 6, 0);
+      ctx.globalAlpha = 1;
+      if (step < 25) this.frame = requestAnimationFrame(blow);
+      else { ctx.clearRect(0, 0, canvas.width, canvas.height); done?.(); }
+    };
+    blow();
+  }
+}
+```
+
+```js ui
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ---------- Reader ----------
+document.querySelectorAll('.book').forEach((el) => el.addEventListener('click', () => openBook(el.dataset.book)));
+$('close').onclick = () => $('reader').close();
+// A click on the dark backdrop lands on the dialog itself: close it
+$('reader').addEventListener('click', (e) => { if (e.target === $('reader')) $('reader').close(); });
+$('section').onchange = (e) => goTo(e.target.value, 1);
+$('chapter').onchange = (e) => goTo(current.section, Number(e.target.value));
+$('prev').onclick = () => step(-1);
+$('next').onclick = () => step(1);
+$('original').onchange = () => goTo(current.section, current.chapter);
+
+// ---------- Ask the sand ----------
+const writer = new SandWriter($('sand'));
+let lastTopic = null;
+let lastQuestion = null;
+
+function ask(question) {
+  const topic = answer(question);
+  lastTopic = topic;
+  lastQuestion = question;
+  $('spoken').textContent = `${topic.title}. ${topic.answer.join(' ')}`;     // screen readers get the answer as text
+  $('sandWrap').hidden = false;                    // visible first, so the canvas has a width to measure
+  writer.write(topic.title, topic.answer, { reducedMotion });
+  $('sandWrap').scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+}
+
+$('askForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = $('question').value.trim();
+  if (q) ask(q);
+});
+
+// Redraw at the new width when the window is resized or a phone is turned (no animation the second time)
+let resizeTimer;
+addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (lastTopic) writer.write(lastTopic.title, lastTopic.answer, { reducedMotion: true }); }, 200);
+});
+
+$('smooth').onclick = () => {
+  lastTopic = null;
+  lastQuestion = null;
+  writer.smooth(() => { $('sandWrap').hidden = true; }, reducedMotion);
+};
+```
+
 ## Finish
 
 ### What you learned
